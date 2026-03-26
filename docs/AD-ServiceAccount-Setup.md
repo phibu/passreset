@@ -1,6 +1,6 @@
-# ReKey — Active Directory Service Account Setup
+﻿# PassReset — Active Directory Service Account Setup
 
-This guide covers every permission ReKey needs in Active Directory, three identity options (standard account, gMSA, domain-joined auto-context), and how to verify the configuration end-to-end.
+This guide covers every permission PassReset needs in Active Directory, three identity options (standard account, gMSA, domain-joined auto-context), and how to verify the configuration end-to-end.
 
 ---
 
@@ -8,9 +8,9 @@ This guide covers every permission ReKey needs in Active Directory, three identi
 
 | Scenario | Identity | `UseAutomaticContext` | Stored password? |
 |---|---|---|---|
-| Domain-joined IIS server + gMSA | `DOMAIN\svc-rekey$` | `true` | No — AD manages it |
-| Domain-joined IIS server + service account | `DOMAIN\svc-rekey` | `true` | Yes — in `appsettings.Production.json` |
-| Non-domain-joined IIS server | `DOMAIN\svc-rekey` | `false` | Yes — in `appsettings.Production.json` |
+| Domain-joined IIS server + gMSA | `DOMAIN\svc-passreset$` | `true` | No — AD manages it |
+| Domain-joined IIS server + service account | `DOMAIN\svc-passreset` | `true` | Yes — in `appsettings.Production.json` |
+| Non-domain-joined IIS server | `DOMAIN\svc-passreset` | `false` | Yes — in `appsettings.Production.json` |
 | Development / debug mode | N/A (`UseDebugProvider: true`) | N/A | No |
 
 **Recommendation:** domain-joined server + gMSA — simplest and most secure.
@@ -25,9 +25,9 @@ In **Active Directory Users and Computers** or via PowerShell on a domain contro
 
 ```powershell
 New-ADUser `
-    -Name              "ReKey Service" `
-    -SamAccountName    "svc-rekey" `
-    -UserPrincipalName "svc-rekey@yourdomain.com" `
+    -Name              "PassReset Service" `
+    -SamAccountName    "svc-passreset" `
+    -UserPrincipalName "svc-passreset@yourdomain.com" `
     -Path              "OU=Service Accounts,DC=yourdomain,DC=com" `
     -AccountPassword   (Read-Host -AsSecureString "Enter password") `
     -PasswordNeverExpires $true `
@@ -41,12 +41,12 @@ Record the password — it goes into `appsettings.Production.json` (Step 5).
 
 ### Step 2 — Delegate "Reset Password" on the user OU
 
-ReKey must be able to reset passwords for users. Delegate this right on the OU (or OUs) that contain your user accounts.
+PassReset must be able to reset passwords for users. Delegate this right on the OU (or OUs) that contain your user accounts.
 
 #### Via the ADUC delegation wizard
 
 1. Open **ADUC** → expand the domain → right-click the target OU → **Delegate Control…**
-2. Click **Add…** → type `svc-rekey` → **OK**
+2. Click **Add…** → type `svc-passreset` → **OK**
 3. Select **Create a custom task to delegate** → **Next**
 4. Select **Only the following objects in the folder** → tick **User objects** → **Next**
 5. Under **Permissions**, tick:
@@ -59,7 +59,7 @@ ReKey must be able to reset passwords for users. Delegate this right on the OU (
 
 ```powershell
 $ou  = "OU=Users,DC=yourdomain,DC=com"
-$sid = (Get-ADUser svc-rekey).SID.Value
+$sid = (Get-ADUser svc-passreset).SID.Value
 
 # Reset password
 dsacls $ou /G "${sid}:CA;Reset Password;User"
@@ -77,7 +77,7 @@ If your users span multiple OUs, run the commands once per OU.
 
 ### Step 3 — Verify read access to user attributes
 
-ReKey reads the following attributes when looking up a user account:
+PassReset reads the following attributes when looking up a user account:
 
 | Attribute | Purpose |
 |---|---|
@@ -96,7 +96,7 @@ These attributes are readable by all authenticated users in a default AD configu
 ```powershell
 Get-ADUser <test-username> `
     -Properties mail, memberOf, pwdLastSet, userAccountControl `
-    -Credential (Get-Credential YOURDOMAIN\svc-rekey) |
+    -Credential (Get-Credential YOURDOMAIN\svc-passreset) |
     Select-Object SamAccountName, Mail, PwdLastSet, UserAccountControl
 ```
 
@@ -106,7 +106,7 @@ If your domain has restricted default read permissions (common in high-security 
 
 ```powershell
 $ou  = "OU=Users,DC=yourdomain,DC=com"
-$sid = (Get-ADUser svc-rekey).SID.Value
+$sid = (Get-ADUser svc-passreset).SID.Value
 
 foreach ($attr in @("mail","memberOf","pwdLastSet","userAccountControl","distinguishedName")) {
     dsacls $ou /G "${sid}:RP;${attr};User"
@@ -117,11 +117,11 @@ foreach ($attr in @("mail","memberOf","pwdLastSet","userAccountControl","disting
 
 ### Step 4 — Verify domain password policy read access
 
-ReKey reads domain-level password policy to enforce minimum age and display length requirements. The account needs read access to the domain root object:
+PassReset reads domain-level password policy to enforce minimum age and display length requirements. The account needs read access to the domain root object:
 
 ```powershell
 # Should return the domain's password policy values
-Get-ADDefaultDomainPasswordPolicy -Credential (Get-Credential YOURDOMAIN\svc-rekey)
+Get-ADDefaultDomainPasswordPolicy -Credential (Get-Credential YOURDOMAIN\svc-passreset)
 ```
 
 This succeeds by default for all authenticated users. No delegation required unless domain object permissions have been hardened.
@@ -136,7 +136,7 @@ This succeeds by default for all authenticated users. No delegation required unl
     "UseAutomaticContext": false,
     "LdapHostnames":  [ "dc01.yourdomain.com", "dc02.yourdomain.com" ],
     "LdapPort":       389,
-    "LdapUsername":   "YOURDOMAIN\\svc-rekey",
+    "LdapUsername":   "YOURDOMAIN\\svc-passreset",
     "LdapPassword":   "<password from Step 1>",
     "DefaultDomain":  "yourdomain.com"
   }
@@ -166,12 +166,12 @@ Add-KdsRootKey -EffectiveTime ((Get-Date).AddHours(-10))
 
 ```powershell
 New-ADGroup `
-    -Name        "ReKey-Servers" `
+    -Name        "PassReset-Servers" `
     -GroupScope  Global `
     -Path        "OU=Groups,DC=yourdomain,DC=com"
 
 # Add the IIS server computer account to the group
-Add-ADGroupMember -Identity "ReKey-Servers" -Members "IISSERVER$"
+Add-ADGroupMember -Identity "PassReset-Servers" -Members "IISSERVER$"
 ```
 
 > After adding the server to the group, reboot it (or run `klist purge` + `gpupdate /force`) so it picks up the new group membership.
@@ -180,19 +180,19 @@ Add-ADGroupMember -Identity "ReKey-Servers" -Members "IISSERVER$"
 
 ```powershell
 New-ADServiceAccount `
-    -Name                                         "svc-rekey" `
-    -DNSHostName                                  "rekey.yourdomain.com" `
-    -PrincipalsAllowedToRetrieveManagedPassword   "ReKey-Servers"
+    -Name                                         "svc-passreset" `
+    -DNSHostName                                  "passreset.yourdomain.com" `
+    -PrincipalsAllowedToRetrieveManagedPassword   "PassReset-Servers"
 ```
 
 ### Step 4 — Install and test on the IIS server
 
 ```powershell
 # On the IIS server (requires RSAT AD PowerShell module)
-Install-ADServiceAccount svc-rekey
+Install-ADServiceAccount svc-passreset
 
 # Verify — must return True
-Test-ADServiceAccount svc-rekey
+Test-ADServiceAccount svc-passreset
 ```
 
 ### Step 5 — Delegate permissions (same as Option A Steps 2–4)
@@ -201,7 +201,7 @@ The gMSA needs the same AD permissions as a standard service account. Run the `d
 
 ```powershell
 $ou  = "OU=Users,DC=yourdomain,DC=com"
-$sid = (Get-ADServiceAccount "svc-rekey").SID.Value
+$sid = (Get-ADServiceAccount "svc-passreset").SID.Value
 
 dsacls $ou /G "${sid}:CA;Reset Password;User"
 dsacls $ou /G "${sid}:RPWP;pwdLastSet;User"
@@ -210,9 +210,9 @@ dsacls $ou /G "${sid}:RPWP;lockoutTime;User"
 
 ### Step 6 — Set the IIS app pool identity
 
-In **IIS Manager** → **Application Pools** → **ReKeyPool** → **Advanced Settings** → **Identity** → **Custom account**:
+In **IIS Manager** → **Application Pools** → **PassResetPool** → **Advanced Settings** → **Identity** → **Custom account**:
 
-- **Username:** `YOURDOMAIN\svc-rekey$` *(trailing dollar sign is required)*
+- **Username:** `YOURDOMAIN\svc-passreset$` *(trailing dollar sign is required)*
 - **Password:** *(leave blank)*
 
 Or via PowerShell:
@@ -220,8 +220,8 @@ Or via PowerShell:
 ```powershell
 Import-Module WebAdministration
 
-Set-ItemProperty "IIS:\AppPools\ReKeyPool" -Name processModel -Value @{
-    userName     = "YOURDOMAIN\svc-rekey$"
+Set-ItemProperty "IIS:\AppPools\PassResetPool" -Name processModel -Value @{
+    userName     = "YOURDOMAIN\svc-passreset$"
     password     = ""
     identityType = "SpecificUser"
 }
@@ -244,9 +244,9 @@ With a gMSA on a domain-joined server, `UseAutomaticContext: true` — no LDAP c
 
 ## Option C — Domain-joined server with named service account (automatic context)
 
-If the IIS server is domain-joined and the app pool runs as a named domain account (not gMSA), set `UseAutomaticContext: true` and omit the LDAP credential settings. ReKey authenticates using the process token of the app pool identity.
+If the IIS server is domain-joined and the app pool runs as a named domain account (not gMSA), set `UseAutomaticContext: true` and omit the LDAP credential settings. PassReset authenticates using the process token of the app pool identity.
 
-Follow Option A Steps 1–4 to create the account and delegate permissions. Set the IIS app pool identity to `YOURDOMAIN\svc-rekey` with its password, then in `appsettings.Production.json`:
+Follow Option A Steps 1–4 to create the account and delegate permissions. Set the IIS app pool identity to `YOURDOMAIN\svc-passreset` with its password, then in `appsettings.Production.json`:
 
 ```json
 {
@@ -277,10 +277,10 @@ Run these from the IIS server after completing the setup:
 
 ```powershell
 # 1. Confirm the gMSA is installed (gMSA only)
-Test-ADServiceAccount svc-rekey          # Must return True
+Test-ADServiceAccount svc-passreset          # Must return True
 
 # 2. Confirm password reset delegation
-$cred = Get-Credential YOURDOMAIN\svc-rekey
+$cred = Get-Credential YOURDOMAIN\svc-passreset
 Set-ADAccountPassword <test-user> `
     -NewPassword (Read-Host -AsSecureString "New PW") `
     -Credential $cred
@@ -291,7 +291,7 @@ Get-ADUser <test-user> -Properties mail, memberOf, pwdLastSet -Credential $cred
 # 4. Confirm domain policy read
 Get-ADDefaultDomainPasswordPolicy -Credential $cred
 
-# 5. End-to-end: use ReKey with a real user account
+# 5. End-to-end: use PassReset with a real user account
 # Set "UseDebugProvider": false in appsettings.Production.json
 # Attempt a password change via the UI
 ```
@@ -305,7 +305,7 @@ Get-ADDefaultDomainPasswordPolicy -Credential $cred
 | "Invalid credentials" on every attempt | Wrong `LdapUsername` / `LdapPassword` in config | Test with `Get-ADUser` using explicit credential |
 | "Access denied" on password reset | Reset Password not delegated on the OU | Re-run `dsacls` delegation (Step 2) |
 | `pwdLastSet` not updating | `pwdLastSet` write not delegated | Add `RPWP;pwdLastSet` delegation |
-| `Test-ADServiceAccount` returns `False` | gMSA not installed, or server not in the allowed principals group | Reboot server after adding to `ReKey-Servers`; re-run `Install-ADServiceAccount` |
+| `Test-ADServiceAccount` returns `False` | gMSA not installed, or server not in the allowed principals group | Reboot server after adding to `PassReset-Servers`; re-run `Install-ADServiceAccount` |
 | Email notifications not sent | `mail` attribute empty on the user object | Populate `mail` in ADUC or via `Set-ADUser -EmailAddress` |
 | Group allow/block list not working | `memberOf` read denied | Add read delegation on `memberOf` for the target OU |
 | LDAPS connection refused | DC certificate not trusted by IIS server | Import the CA root cert into `Cert:\LocalMachine\Root` on the IIS server |

@@ -24,14 +24,14 @@ SOFTWARE.
 
 INSPIRATION AND PRIOR WORK
 
-ReKey is a full rewrite inspired by PassCore, originally developed by Unosquare LLC:
+PassReset is a full rewrite inspired by PassCore, originally developed by Unosquare LLC:
 
   PassCore — https://github.com/unosquare/passcore
   Copyright (c) 2016-2022 Unosquare LLC
   Licensed under the MIT License
 
 PassCore provided the original concept of a self-service Active Directory
-password change portal. ReKey rebuilds the idea from scratch on modern
+password change portal. PassReset rebuilds the idea from scratch on modern
 foundations (.NET 10 LTS, React 19, MUI 6) while adding email notifications,
 password expiry reminders, HaveIBeenPwned integration, reCAPTCHA v3,
 hardened security headers, and a clean contemporary UI.

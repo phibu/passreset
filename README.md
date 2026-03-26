@@ -1,11 +1,11 @@
-# ReKey
+﻿# PassReset
 
 **Self-service Active Directory password change portal.**
 Built on .NET 10 LTS · React 19 · MUI 6 · Vite · IIS on Windows Server 2022.
 
 > Inspired by [PassCore](https://github.com/unosquare/passcore) by Unosquare LLC — fully rewritten on modern foundations with email notifications, password expiry reminders, HaveIBeenPwned integration, reCAPTCHA v3, and a clean contemporary UI.
 
-![ReKey UI](docs/screenshot.png)
+![PassReset UI](docs/screenshot.png)
 
 ---
 
@@ -18,7 +18,7 @@ Built on .NET 10 LTS · React 19 · MUI 6 · Vite · IIS on Windows Server 2022.
 | Password generator | Crypto-secure, configurable entropy |
 | Pwned password check | HaveIBeenPwned k-anonymity API |
 | reCAPTCHA v3 | Server-side score validation (≥ 0.5) |
-| Password-changed email | MailKit, STARTTLS/SMTPS, Mimecast-compatible |
+| Password-changed email | MailKit, STARTTLS/SMTPS, SMTP Relay enabled |
 | Expiry reminder emails | Daily background service, configurable threshold |
 | AD group allow/block lists | Restrict which users can self-serve |
 | Minimum password age | Enforces AD `minPwdAge` policy |
@@ -48,11 +48,11 @@ Built on .NET 10 LTS · React 19 · MUI 6 · Vite · IIS on Windows Server 2022.
 ## Project Structure
 
 ```
-rekey/
+PassReset/
 ├── src/
-│   ├── ReKey.Common/             # Shared interfaces and error types
-│   ├── ReKey.PasswordProvider/   # AD password provider (Windows-only)
-│   └── ReKey.Web/                # ASP.NET Core app + React frontend
+│   ├── PassReset.Common/             # Shared interfaces and error types
+│   ├── PassReset.PasswordProvider/   # AD password provider (Windows-only)
+│   └── PassReset.Web/                # ASP.NET Core app + React frontend
 │       ├── ClientApp/            # React 19 + Vite source
 │       ├── Controllers/          # API endpoints
 │       ├── Models/               # Config and request models
@@ -61,8 +61,8 @@ rekey/
 │       ├── appsettings.json      # Default configuration
 │       └── Program.cs            # App entry point + DI wiring
 ├── deploy/
-│   ├── Publish-ReKey.ps1         # Build frontend + dotnet publish
-│   ├── Install-ReKey.ps1         # IIS site/pool/cert/permissions setup
+│   ├── Publish-PassReset.ps1         # Build frontend + dotnet publish
+│   ├── Install-PassReset.ps1         # IIS site/pool/cert/permissions setup
 │   └── AD-ServiceAccount-Setup.md
 └── docs/
     ├── IIS-Setup.md              # IIS prerequisites and certificate guide
@@ -80,14 +80,14 @@ rekey/
 ### Run the backend
 
 ```bash
-cd src/ReKey.Web
+cd src/PassReset.Web
 dotnet run
 ```
 
 ### Run the frontend (hot-reload)
 
 ```bash
-cd src/ReKey.Web/ClientApp
+cd src/PassReset.Web/ClientApp
 npm install
 npm run dev
 ```
@@ -96,7 +96,7 @@ The Vite dev server proxies `/api` to `https://localhost:5001`.
 
 ### Debug mode (no AD required)
 
-In `src/ReKey.Web/appsettings.Development.json`:
+In `src/PassReset.Web/appsettings.Development.json`:
 
 ```json
 {
@@ -154,8 +154,8 @@ Settings live in `appsettings.json` (defaults) and `appsettings.Production.json`
     "Host": "smtp-relay.yourdomain.com",
     "Port": 587,
     "UseSsl": true,
-    "FromAddress": "rekey@yourdomain.com",
-    "FromName": "ReKey Self-Service"
+    "FromAddress": "passreset@yourdomain.com",
+    "FromName": "PassReset Self-Service"
   }
 }
 ```
@@ -172,15 +172,15 @@ See [`docs/IIS-Setup.md`](docs/IIS-Setup.md) for the full step-by-step guide inc
 
 ```powershell
 # 1. Build
-.\deploy\Publish-ReKey.ps1
+.\deploy\Publish-PassReset.ps1
 
 # 2. Install to IIS (run as Administrator)
-.\deploy\Install-ReKey.ps1 `
-    -AppPoolIdentity "CORP\svc-rekey" `
+.\deploy\Install-PassReset.ps1 `
+    -AppPoolIdentity "CORP\svc-passreset" `
     -AppPoolPassword "S3cr3t!" `
     -CertThumbprint "A1B2C3D4..."
 
-# 3. Edit C:\inetpub\ReKey\appsettings.Production.json
+# 3. Edit C:\inetpub\PassReset\appsettings.Production.json
 ```
 
 For AD service account setup and required permissions, see [`docs/AD-ServiceAccount-Setup.md`](docs/AD-ServiceAccount-Setup.md).

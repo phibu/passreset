@@ -1,6 +1,6 @@
-# ReKey — IIS Setup Guide
+﻿# PassReset — IIS Setup Guide
 
-Step-by-step instructions for deploying ReKey on **Windows Server 2022** with **IIS 10**.
+Step-by-step instructions for deploying PassReset on **Windows Server 2022** with **IIS 10**.
 
 ---
 
@@ -75,7 +75,7 @@ dotnet --list-runtimes
 
 ## Step 3 — Obtain an SSL Certificate
 
-ReKey requires HTTPS. Choose one of the options below.
+PassReset requires HTTPS. Choose one of the options below.
 
 ### Option A — Internal CA / Active Directory Certificate Services
 
@@ -83,9 +83,9 @@ If your organisation has AD CS:
 
 1. Open **IIS Manager** → select the server node → **Server Certificates**
 2. Click **Create Domain Certificate** in the Actions pane
-3. Fill in Common Name (e.g. `rekey.yourdomain.com`), Organisation, etc.
+3. Fill in Common Name (e.g. `passreset.yourdomain.com`), Organisation, etc.
 4. Click **Select...** and choose your internal CA
-5. Give it a friendly name (e.g. `ReKey`) → Finish
+5. Give it a friendly name (e.g. `PassReset`) → Finish
 
 ### Option B — Commercial Certificate (DigiCert, Sectigo, etc.)
 
@@ -99,10 +99,10 @@ If your organisation has AD CS:
 ```powershell
 # Creates a self-signed cert valid for 2 years, stored in LocalMachine\My
 $cert = New-SelfSignedCertificate `
-    -DnsName "rekey.yourdomain.com" `
+    -DnsName "passreset.yourdomain.com" `
     -CertStoreLocation "cert:\LocalMachine\My" `
     -NotAfter (Get-Date).AddYears(2) `
-    -FriendlyName "ReKey Self-Signed"
+    -FriendlyName "PassReset Self-Signed"
 
 Write-Host "Thumbprint: $($cert.Thumbprint)"
 ```
@@ -133,7 +133,7 @@ Get-ChildItem Cert:\LocalMachine\My |
     Format-Table -AutoSize
 ```
 
-Note the **Thumbprint** of the ReKey certificate — you will pass it to `Install-ReKey.ps1`.
+Note the **Thumbprint** of the PassReset certificate — you will pass it to `Install-PassReset.ps1`.
 
 ---
 
@@ -143,7 +143,7 @@ On your **build machine** (needs .NET 10 SDK + Node 20):
 
 ```powershell
 # From the repo root
-.\deploy\Publish-ReKey.ps1
+.\deploy\Publish-PassReset.ps1
 ```
 
 This runs `npm ci && npm run build` (frontend) then `dotnet publish` into `deploy\publish\`.
@@ -158,17 +158,17 @@ On the **IIS server**, run as **Administrator**:
 
 ```powershell
 # Minimal — ApplicationPoolIdentity, no HTTPS binding yet
-.\deploy\Install-ReKey.ps1
+.\deploy\Install-PassReset.ps1
 
 # Recommended — service account + certificate
-.\deploy\Install-ReKey.ps1 `
-    -SiteName        "ReKey" `
-    -AppPoolName      "ReKeyPool" `
-    -PhysicalPath     "C:\inetpub\ReKey" `
+.\deploy\Install-PassReset.ps1 `
+    -SiteName        "PassReset" `
+    -AppPoolName      "PassResetPool" `
+    -PhysicalPath     "C:\inetpub\PassReset" `
     -PublishFolder    ".\publish" `
     -HttpsPort        443 `
     -CertThumbprint   "PASTE_THUMBPRINT_HERE" `
-    -AppPoolIdentity  "YOURDOMAIN\svc-rekey" `
+    -AppPoolIdentity  "YOURDOMAIN\svc-passreset" `
     -AppPoolPassword  "ServiceAccountPassword"
 ```
 
@@ -184,7 +184,7 @@ The installer:
 
 ## Step 7 — Configure the Application
 
-Edit `C:\inetpub\ReKey\appsettings.Production.json`:
+Edit `C:\inetpub\PassReset\appsettings.Production.json`:
 
 ```json
 {
@@ -202,8 +202,8 @@ Edit `C:\inetpub\ReKey\appsettings.Production.json`:
     "Host": "smtp-relay.yourdomain.com",
     "Port": 587,
     "UseSsl": true,
-    "FromAddress": "rekey@yourdomain.com",
-    "FromName": "ReKey Self-Service"
+    "FromAddress": "passreset@yourdomain.com",
+    "FromName": "PassReset Self-Service"
   },
   "ClientSettings": {
     "UseEmail": true,
@@ -223,7 +223,7 @@ Edit `C:\inetpub\ReKey\appsettings.Production.json`:
 Before going live, enable the debug provider to verify IIS is serving the app correctly:
 
 1. Set `"UseDebugProvider": true` in `appsettings.Production.json`
-2. Browse to `https://rekey.yourdomain.com`
+2. Browse to `https://passreset.yourdomain.com`
 3. Test a password change with username `invalidCredentials` — you should see the expected error
 4. Set `"UseDebugProvider": false` when ready for production
 
@@ -231,7 +231,7 @@ Before going live, enable the debug provider to verify IIS is serving the app co
 
 ## Step 9 — DNS and Firewall
 
-1. **DNS** — Create an A record (or CNAME) pointing `rekey.yourdomain.com` to the server IP.
+1. **DNS** — Create an A record (or CNAME) pointing `passreset.yourdomain.com` to the server IP.
 2. **Firewall** — Allow inbound TCP 443 from the intended user subnet.
 3. **HTTP → HTTPS redirect** — The installer removes the HTTP :80 binding when a certificate is supplied. If you need an HTTP redirect for external users, add it back manually in IIS → HTTP Redirect.
 
@@ -241,7 +241,7 @@ Before going live, enable the debug provider to verify IIS is serving the app co
 
 ```powershell
 # Health check (run from any machine with network access)
-Invoke-WebRequest https://rekey.yourdomain.com/health -UseBasicParsing
+Invoke-WebRequest https://passreset.yourdomain.com/health -UseBasicParsing
 
 # Expected: StatusCode 200, Content: Healthy
 ```
@@ -254,18 +254,18 @@ Invoke-WebRequest https://rekey.yourdomain.com/health -UseBasicParsing
 
 - Run `iisreset` after installing the .NET 10 Hosting Bundle.
 - Check the Windows Event Viewer → **Application** log for `IIS AspNetCore Module` errors.
-- Ensure the app pool identity has **ReadAndExecute** permission on `C:\inetpub\ReKey\`.
+- Ensure the app pool identity has **ReadAndExecute** permission on `C:\inetpub\PassReset\`.
 
 ### 403 Forbidden on static files
 
 - Check that `Web-Static-Content` IIS feature is installed.
-- Verify the `wwwroot\` folder exists and contains `index.html` (run `Publish-ReKey.ps1` first).
+- Verify the `wwwroot\` folder exists and contains `index.html` (run `Publish-PassReset.ps1` first).
 
 ### Password change fails immediately
 
 - Verify the server is domain-joined (`systeminfo | findstr /i "domain"`).
 - Check `UseAutomaticContext` setting.
-- Review ReKey logs under `C:\inetpub\ReKey\logs\` or Windows Event Log.
+- Review PassReset logs under `C:\inetpub\PassReset\logs\` or Windows Event Log.
 - Test with `UseDebugProvider: true` to isolate AD vs application issues.
 
 ### Certificate not found in IIS binding
@@ -288,7 +288,7 @@ Certificates must be renewed before expiry. After renewal:
 1. Import the new certificate into `Cert:\LocalMachine\My`.
 2. Update the IIS HTTPS binding:
    ```powershell
-   $site    = "ReKey"
+   $site    = "PassReset"
    $newThumb = "NEW_THUMBPRINT_HERE"
    $binding = Get-WebBinding -Name $site -Protocol https
    $binding.RemoveSslCertificate()
