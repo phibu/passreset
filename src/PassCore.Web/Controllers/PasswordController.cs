@@ -1,30 +1,55 @@
+using System.Net.Http.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
 using PassCore.Common;
 using PassCore.Web.Models;
+using PassCore.Web.Services;
 
 namespace PassCore.Web.Controllers;
 
 /// <summary>
-/// Handles password change requests.
-/// Rate-limited to 5 requests per 5 minutes per client (see Program.cs).
-/// Full implementation follows in a later task — this stub wires the rate-limit
-/// policy and model binding so the middleware chain is exercisable end-to-end.
+/// Handles password change requests and exposes client configuration.
+/// Rate-limited to 5 requests per 5 minutes per IP on the POST endpoint.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public sealed class PasswordController : ControllerBase
 {
     private readonly IPasswordChangeProvider _provider;
+    private readonly IEmailService _emailService;
+    private readonly IOptions<ClientSettings> _clientSettings;
+    private readonly IOptions<EmailNotificationSettings> _emailNotifSettings;
     private readonly ILogger<PasswordController> _logger;
+
+    // Static HttpClient for reCAPTCHA v3 verification — avoids socket exhaustion.
+    private static readonly HttpClient _recaptchaHttp = new()
+    {
+        BaseAddress = new Uri("https://www.google.com/"),
+        Timeout     = TimeSpan.FromSeconds(10),
+    };
 
     public PasswordController(
         IPasswordChangeProvider provider,
+        IEmailService emailService,
+        IOptions<ClientSettings> clientSettings,
+        IOptions<EmailNotificationSettings> emailNotifSettings,
         ILogger<PasswordController> logger)
     {
-        _provider = provider;
-        _logger   = logger;
+        _provider           = provider;
+        _emailService       = emailService;
+        _clientSettings     = clientSettings;
+        _emailNotifSettings = emailNotifSettings;
+        _logger             = logger;
     }
+
+    /// <summary>
+    /// Returns the client-facing configuration (UI strings, feature flags, reCAPTCHA site key).
+    /// GET /api/password
+    /// </summary>
+    [HttpGet]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public IActionResult Get() => Ok(_clientSettings.Value);
 
     /// <summary>
     /// Changes the password for the specified user account.
@@ -35,27 +60,113 @@ public sealed class PasswordController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
-    public IActionResult Post([FromBody] ChangePasswordModel model)
+    public async Task<IActionResult> PostAsync([FromBody] ChangePasswordModel model)
     {
+        var clientIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
         if (!ModelState.IsValid)
-            return BadRequest(ModelState);
+        {
+            AuditLog("ValidationFailed", model.Username, clientIp);
+            return BadRequest(ApiResult.FromModelStateErrors(ModelState));
+        }
 
-        _logger.LogInformation("Password change requested for user={User}", model.Username);
+        // Validate minimum Levenshtein distance between old and new password
+        var settings = _clientSettings.Value;
 
-        var error = _provider.PerformPasswordChange(
-            model.Username,
-            model.CurrentPassword,
-            model.NewPassword);
+        if (settings.MinimumDistance > 0 &&
+            _provider.MeasureNewPasswordDistance(model.CurrentPassword, model.NewPassword) < settings.MinimumDistance)
+        {
+            AuditLog("DistanceTooLow", model.Username, clientIp);
+            var result = new ApiResult();
+            result.Errors.Add(new ApiErrorItem(ApiErrorCode.MinimumDistance));
+            return BadRequest(result);
+        }
+
+        // reCAPTCHA v3 validation (skipped if SiteKey is unconfigured)
+        var recaptchaConfig = settings.Recaptcha;
+        if (!string.IsNullOrWhiteSpace(recaptchaConfig?.PrivateKey))
+        {
+            if (!await ValidateRecaptchaAsync(model.Recaptcha, recaptchaConfig.PrivateKey, clientIp))
+            {
+                AuditLog("RecaptchaFailed", model.Username, clientIp);
+                return BadRequest(ApiResult.InvalidCaptcha());
+            }
+        }
+
+        // Perform the password change
+        var error = _provider.PerformPasswordChange(model.Username, model.CurrentPassword, model.NewPassword);
 
         if (error is not null)
         {
-            _logger.LogWarning(
-                "Password change failed for user={User} errorCode={Code}",
-                model.Username, error.ErrorCode);
-            return BadRequest(new { error });
+            AuditLog($"Failed:{error.ErrorCode}", model.Username, clientIp);
+            var result = new ApiResult();
+            result.Errors.Add(error);
+            return BadRequest(result);
         }
 
-        _logger.LogInformation("Password change succeeded for user={User}", model.Username);
-        return Ok(new { message = "Password changed successfully." });
+        AuditLog("Success", model.Username, clientIp);
+
+        // Fire-and-forget email notification — capture HttpContext values before Task.Run
+        if (_emailNotifSettings.Value.Enabled)
+        {
+            var username  = model.Username;
+            var timestamp = DateTime.UtcNow.ToString("u");
+            var ip        = clientIp;
+            var emailSvc  = _emailService;
+            var notifCfg  = _emailNotifSettings.Value;
+
+            _ = Task.Run(async () =>
+            {
+                var emailAddress = _provider.GetUserEmail(username);
+                if (string.IsNullOrWhiteSpace(emailAddress)) return;
+
+                var body = notifCfg.BodyTemplate
+                    .Replace("{Username}",  username,  StringComparison.Ordinal)
+                    .Replace("{Timestamp}", timestamp, StringComparison.Ordinal)
+                    .Replace("{IpAddress}", ip,        StringComparison.Ordinal);
+
+                await emailSvc.SendAsync(emailAddress, username, notifCfg.Subject, body);
+            });
+        }
+
+        return Ok(new ApiResult("Password changed successfully."));
+    }
+
+    // ─── Private helpers ──────────────────────────────────────────────────────
+
+    private void AuditLog(string outcome, string username, string clientIp) =>
+        _logger.LogInformation(
+            "PasswordChange outcome={Outcome} user={User} ip={Ip}",
+            outcome, username, clientIp);
+
+    private static async Task<bool> ValidateRecaptchaAsync(
+        string token, string privateKey, string clientIp)
+    {
+        try
+        {
+            var response = await _recaptchaHttp.PostAsync(
+                $"recaptcha/api/siteverify?secret={Uri.EscapeDataString(privateKey)}" +
+                $"&response={Uri.EscapeDataString(token)}" +
+                $"&remoteip={Uri.EscapeDataString(clientIp)}",
+                content: null);
+
+            if (!response.IsSuccessStatusCode) return false;
+
+            var json = await response.Content.ReadFromJsonAsync<RecaptchaResponse>();
+            // v3 returns a score 0.0–1.0; treat >= 0.5 as human
+            return json?.Success == true && json.Score >= 0.5f;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    // Minimal DTO for reCAPTCHA v3 API response deserialization
+    private sealed class RecaptchaResponse
+    {
+        public bool  Success { get; set; }
+        public float Score   { get; set; }
+        public string? Action { get; set; }
     }
 }

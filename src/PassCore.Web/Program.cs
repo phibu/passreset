@@ -1,9 +1,12 @@
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 using PassCore.Common;
+using PassCore.PasswordProvider;
 using PassCore.Web.Helpers;
 using PassCore.Web.Models;
 using PassCore.Web.Services;
+// NoOpEmailService lives in PassCore.Web.Helpers (development no-op).
+// SmtpEmailService and PasswordExpiryNotificationService live in PassCore.Web.Services.
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,11 +21,17 @@ builder.Services.Configure<EmailNotificationSettings>(
     builder.Configuration.GetSection(nameof(EmailNotificationSettings)));
 builder.Services.Configure<PasswordExpiryNotificationSettings>(
     builder.Configuration.GetSection(nameof(PasswordExpiryNotificationSettings)));
+builder.Services.Configure<PasswordChangeOptions>(
+    builder.Configuration.GetSection(nameof(PasswordChangeOptions)));
 
 // ─── Provider registration (runtime config flag, no compile-time conditionals) ─
 var webSettings = builder.Configuration
     .GetSection(nameof(WebSettings))
     .Get<WebSettings>() ?? new WebSettings();
+
+var expirySettings = builder.Configuration
+    .GetSection(nameof(PasswordExpiryNotificationSettings))
+    .Get<PasswordExpiryNotificationSettings>() ?? new PasswordExpiryNotificationSettings();
 
 if (webSettings.UseDebugProvider)
 {
@@ -31,10 +40,11 @@ if (webSettings.UseDebugProvider)
 }
 else
 {
-    // Real implementations are wired here in future tasks (AD provider, SMTP service).
-    // For now fall back to no-ops to keep the build green in environments without AD.
-    builder.Services.AddSingleton<IPasswordChangeProvider, DebugPasswordChangeProvider>();
-    builder.Services.AddSingleton<IEmailService, NoOpEmailService>();
+    builder.Services.AddSingleton<IPasswordChangeProvider, PasswordChangeProvider>();
+    builder.Services.AddTransient<IEmailService, SmtpEmailService>();
+
+    if (expirySettings.Enabled)
+        builder.Services.AddHostedService<PasswordExpiryNotificationService>();
 }
 
 // ─── Rate limiting (built-in .NET 7+ API, no third-party dependency) ──────────
@@ -47,10 +57,10 @@ builder.Services.AddRateLimiter(options =>
 
     options.AddFixedWindowLimiter(PasswordRateLimitPolicy, limiterOptions =>
     {
-        limiterOptions.PermitLimit        = 5;
-        limiterOptions.Window             = TimeSpan.FromMinutes(5);
+        limiterOptions.PermitLimit          = 5;
+        limiterOptions.Window               = TimeSpan.FromMinutes(5);
         limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-        limiterOptions.QueueLimit         = 0;  // no queuing — reject immediately
+        limiterOptions.QueueLimit           = 0;  // no queuing — reject immediately
     });
 });
 
@@ -64,11 +74,11 @@ var app = builder.Build();
 app.Use(async (context, next) =>
 {
     var headers = context.Response.Headers;
-    headers["X-Frame-Options"]           = "DENY";
-    headers["X-Content-Type-Options"]    = "nosniff";
-    headers["Referrer-Policy"]           = "strict-origin-when-cross-origin";
-    headers["Permissions-Policy"]        = "geolocation=(), microphone=(), camera=()";
-    headers["Content-Security-Policy"]   =
+    headers["X-Frame-Options"]         = "DENY";
+    headers["X-Content-Type-Options"]  = "nosniff";
+    headers["Referrer-Policy"]         = "strict-origin-when-cross-origin";
+    headers["Permissions-Policy"]      = "geolocation=(), microphone=(), camera=()";
+    headers["Content-Security-Policy"] =
         "default-src 'self'; " +
         "script-src 'self' https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/; " +
         "style-src 'self' 'unsafe-inline'; " +
