@@ -374,7 +374,10 @@ if (Test-Path $prodConfig) {
         }
         PasswordChangeOptions = [PSCustomObject]@{
             UseAutomaticContext         = $true
+            AllowedUsernameAttributes   = @('samaccountname')
             IdTypeForUser               = 'UserPrincipalName'
+            PortalLockoutThreshold      = 3
+            PortalLockoutWindow         = '00:30:00'
             DefaultDomain               = 'yourdomain.com'
             ClearMustChangePasswordFlag = $true
             EnforceMinimumPasswordAge   = $true
@@ -410,17 +413,64 @@ if (Test-Path $prodConfig) {
             ExpiryEmailBodyTemplate = "Hello {Username},`n`nYour Active Directory password will expire in {DaysRemaining} day(s) on {ExpiryDate}.`n`nPlease change your password before it expires: {PassResetUrl}"
         }
         ClientSettings = [PSCustomObject]@{
-            UseEmail              = $true
-            ShowPasswordMeter     = $true
-            UsePasswordGeneration = $false
-            MinimumDistance       = 0
-            PasswordEntropy       = 16
-            MinimumScore          = 0
-            Recaptcha             = [PSCustomObject]@{
+            ApplicationTitle          = 'Change Account Password | Self-Service'
+            ChangePasswordTitle       = 'Change Account Password'
+            UseEmail                  = $false
+            ShowPasswordMeter         = $true
+            UsePasswordGeneration     = $false
+            MinimumDistance           = 0
+            PasswordEntropy           = 16
+            MinimumScore              = 0
+            AllowedUsernameAttributes = @('samaccountname')
+            Recaptcha                 = [PSCustomObject]@{
                 Enabled      = $false
                 SiteKey      = ''
                 PrivateKey   = ''
                 LanguageCode = 'en'
+            }
+            ValidationRegex           = [PSCustomObject]@{
+                EmailRegex    = '^[a-zA-Z0-9.!#$%&''*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$'
+                UsernameRegex = ''
+            }
+            ChangePasswordForm        = [PSCustomObject]@{
+                HelpText                        = 'If you are having trouble with this tool, please contact IT Support.'
+                UsernameLabel                   = 'Username'
+                UsernameHelpblock               = 'Your organisation email address'
+                UsernameDefaultDomainHelperBlock = 'Your organisation username'
+                CurrentPasswordLabel            = 'Current Password'
+                CurrentPasswordHelpblock        = ''
+                NewPasswordLabel                = 'New Password'
+                NewPasswordHelpblock            = 'Choose a strong password.'
+                NewPasswordVerifyLabel          = 'Confirm New Password'
+                NewPasswordVerifyHelpblock      = ''
+                ChangePasswordButtonLabel       = 'Change Password'
+            }
+            ErrorsPasswordForm        = [PSCustomObject]@{
+                FieldRequired        = 'This field is required.'
+                PasswordMatch        = 'Passwords do not match.'
+                UsernameEmailPattern = 'Please enter a valid email address.'
+                UsernamePattern      = 'Please enter a valid username.'
+            }
+            Alerts                    = [PSCustomObject]@{
+                SuccessAlertTitle              = 'Password changed successfully.'
+                SuccessAlertBody               = 'Please note it may take a few minutes for your new password to reach all domain controllers.'
+                ErrorPasswordChangeNotAllowed  = 'You are not allowed to change your password. Please contact IT Support.'
+                ErrorInvalidCredentials        = 'Your current password is incorrect.'
+                ErrorInvalidDomain             = 'Invalid domain. Please check your username and try again.'
+                ErrorInvalidUser               = 'User account not found.'
+                ErrorCaptcha                   = 'Could not verify you are not a robot. Please try again.'
+                ErrorFieldRequired             = 'Please fill in all required fields.'
+                ErrorFieldMismatch             = 'The new passwords do not match.'
+                ErrorComplexPassword           = 'The new password does not meet complexity requirements.'
+                ErrorConnectionLdap            = 'Could not connect to the directory. Please contact IT Support.'
+                ErrorScorePassword             = 'The password is not strong enough. Please choose a stronger password.'
+                ErrorDistancePassword          = 'The new password is too similar to your current password.'
+                ErrorPwnedPassword             = 'This password has been found in public breach databases. Please choose a different password.'
+                ErrorPasswordTooYoung          = 'Your password was changed too recently. Please wait before changing it again.'
+                ErrorRateLimitExceeded         = 'Too many attempts. Please wait a few minutes and try again.'
+                ErrorPwnedPasswordCheckFailed  = 'The password breach check service is temporarily unavailable. Please try again in a moment.'
+                ErrorPortalLockout             = 'Too many failed attempts. Please wait 30 minutes before trying again.'
+                ErrorApproachingLockout        = 'Incorrect password. Warning: one more failed attempt will temporarily lock your access to this portal.'
             }
         }
     }
