@@ -1,9 +1,9 @@
-﻿# PassReset
+# PassReset
 
-**Self-service Active Directory password change portal.**
-Built on .NET 10 LTS · React 19 · MUI 6 · Vite · IIS on Windows Server 2022.
+> Self-service Active Directory password change portal. Employees change their own password in a browser — no helpdesk call needed.
 
-> Inspired by [PassCore](https://github.com/unosquare/passcore) by Unosquare LLC — fully rewritten on modern foundations with email notifications, password expiry reminders, HaveIBeenPwned integration, reCAPTCHA v3, and a clean contemporary UI.
+[![GitHub release](https://img.shields.io/github/v/release/phibu/passreset)](https://github.com/phibu/passreset/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ![PassReset UI](docs/screenshot.png)
 
@@ -11,21 +11,24 @@ Built on .NET 10 LTS · React 19 · MUI 6 · Vite · IIS on Windows Server 2022.
 
 ## Features
 
-| Feature | Details |
+| Feature | What it does |
 |---|---|
-| AD password change | `System.DirectoryServices.AccountManagement` — domain-joined or explicit LDAP |
-| Password strength meter | zxcvbn score with live visual feedback |
-| Password generator | Crypto-secure, configurable entropy |
-| Pwned password check | HaveIBeenPwned k-anonymity API |
-| reCAPTCHA v3 | Server-side score validation (≥ 0.5) |
-| Password-changed email | MailKit, STARTTLS/SMTPS, SMTP Relay enabled |
-| Expiry reminder emails | Daily background service, configurable threshold |
-| AD group allow/block lists | Restrict which users can self-serve |
-| Minimum password age | Enforces AD `minPwdAge` policy |
-| Must-change-at-next-logon | Clears `pwdLastSet` flag after successful change |
-| Rate limiting | Built-in ASP.NET Core fixed-window limiter |
-| Security headers | CSP, HSTS, X-Frame-Options, Referrer-Policy, Permissions-Policy |
-| Debug provider | Full UI testing without an AD connection |
+| Self-service password change | Users change their own AD password from any browser |
+| Password strength meter | Live feedback while you type, powered by zxcvbn |
+| Password generator | Creates a strong password for you on demand |
+| Breach database check | Blocks passwords found in known data breaches (HaveIBeenPwned) |
+| reCAPTCHA v3 | Optional bot protection with Google reCAPTCHA — no user interaction required |
+| Password-changed email | Notifies the user by email after a successful change |
+| Expiry reminder emails | Daily reminders before a password is about to expire |
+| Flexible username formats | Accept SAM account name (`jdoe`), UPN (`jdoe@company.com`), or email address — configurable |
+| Portal lockout | Blocks further attempts after a configurable number of wrong passwords, protecting the AD account from lockout |
+| Approaching-lockout warning | Shows a banner when one more wrong attempt will trigger the portal block |
+| AD group allow/block lists | Restrict which users can self-serve; block list takes priority |
+| Minimum password age | Respects the AD `minPwdAge` policy — prevents changing too soon after the last change |
+| Must-change-at-next-logon | Clears the "must change at next logon" flag after a successful change |
+| Rate limiting | 5 requests per 5 minutes per IP address |
+| Security headers | CSP, HSTS, X-Frame-Options DENY, nosniff, Referrer-Policy |
+| Debug mode | Test the full UI without an AD connection |
 
 ---
 
@@ -33,66 +36,100 @@ Built on .NET 10 LTS · React 19 · MUI 6 · Vite · IIS on Windows Server 2022.
 
 | Layer | Technology |
 |---|---|
-| Runtime | .NET 10 LTS (`net10.0-windows`) |
-| Web framework | ASP.NET Core minimal hosting |
-| AD integration | `System.DirectoryServices` / `AccountManagement` |
-| Email | MailKit 4.x |
+| Runtime | .NET 10 LTS, Windows |
+| Web framework | ASP.NET Core |
+| AD integration | `System.DirectoryServices.AccountManagement` — domain-joined or explicit LDAP |
+| Email | MailKit (STARTTLS / SMTPS / SMTP relay) |
 | Frontend | React 19 + TypeScript |
-| UI components | MUI v6 (Material UI) |
-| Build tool | Vite 6 |
-| Password scoring | zxcvbn |
-| Deployment | IIS 10, Windows Server 2022 |
+| UI components | Material UI v6 |
+| Build tool | Vite |
+| Deployment | IIS 10 on Windows Server (2019, 2022, 2025) |
+
+---
+
+## Requirements
+
+- Windows Server 2022 (recommended) — 2019 and 2025 also supported
+- IIS 10
+- [.NET 10 Hosting Bundle](https://dotnet.microsoft.com/download/dotnet/10.0)
+- Domain-joined server (recommended) or an AD service account with LDAP credentials
+- SSL certificate bound to the IIS site
+
+---
+
+## Deployment
+
+Download the latest release zip from [GitHub Releases](https://github.com/phibu/passreset/releases), extract it, then run the installer as Administrator.
+
+```powershell
+# Fresh install
+.\Install-PassReset.ps1 -CertThumbprint "YOUR_CERT_THUMBPRINT"
+
+# Upgrade over an existing installation
+# Shows a version comparison, creates a dated backup, then overwrites.
+# -Force skips the confirmation prompt.
+.\Install-PassReset.ps1 -Force -CertThumbprint "YOUR_CERT_THUMBPRINT"
+
+# Uninstall
+.\Uninstall-PassReset.ps1
+```
+
+Full installation guide: [`docs/IIS-Setup.md`](docs/IIS-Setup.md)
+AD service account and permissions: [`docs/AD-ServiceAccount-Setup.md`](docs/AD-ServiceAccount-Setup.md)
+
+---
+
+## Configuration
+
+Settings live in `appsettings.Production.json`, created by the installer at `C:\inetpub\PassReset\`.
+
+The most commonly changed keys:
+
+| Key | What it controls |
+|---|---|
+| `PasswordChangeOptions.AllowedUsernameAttributes` | Which username formats users can enter: `samaccountname`, `userprincipalname`, or `mail` |
+| `PasswordChangeOptions.PortalLockoutThreshold` | Wrong-password attempts before the portal blocks the user (default: `3`) |
+| `PasswordChangeOptions.PortalLockoutWindow` | How long the portal block lasts (default: `"00:30:00"` — 30 minutes) |
+| `PasswordChangeOptions.UseAutomaticContext` | Set `true` on a domain-joined server — no LDAP credentials needed |
+| `SmtpSettings.Host` | SMTP relay hostname — leave empty to disable all email |
+
+Full configuration reference: [`docs/appsettings-Production.md`](docs/appsettings-Production.md)
 
 ---
 
 ## Project Structure
 
 ```
-PassReset/
-├── src/
-│   ├── PassReset.Common/             # Shared interfaces and error types
-│   ├── PassReset.PasswordProvider/   # AD password provider (Windows-only)
-│   └── PassReset.Web/                # ASP.NET Core app + React frontend
-│       ├── ClientApp/            # React 19 + Vite source
-│       ├── Controllers/          # API endpoints
-│       ├── Models/               # Config and request models
-│       ├── Services/             # Email + background services
-│       ├── Helpers/              # Debug/no-op providers
-│       ├── appsettings.json      # Default configuration
-│       └── Program.cs            # App entry point + DI wiring
-├── deploy/
-│   ├── Publish-PassReset.ps1         # Build frontend + dotnet publish
-│   ├── Install-PassReset.ps1         # IIS site/pool/cert/permissions setup
-│   └── AD-ServiceAccount-Setup.md
-└── docs/
-    ├── IIS-Setup.md              # IIS prerequisites and certificate guide
-    └── screenshot.png            # UI preview
+src/
+  PassReset.Common/           — shared interfaces and error types
+  PassReset.PasswordProvider/ — Active Directory integration (Windows-only)
+  PassReset.Web/              — ASP.NET Core app + React frontend
+deploy/
+  Publish-PassReset.ps1       — builds and packages a release zip
+  Install-PassReset.ps1       — installs or upgrades on IIS
+  Uninstall-PassReset.ps1     — removes the installation from IIS
+docs/
+  IIS-Setup.md                — step-by-step IIS and certificate guide
+  AD-ServiceAccount-Setup.md  — Active Directory permissions guide
+  appsettings-Production.md   — full configuration reference
 ```
 
 ---
 
 ## Quick Start — Development
 
-### Prerequisites
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
-- [Node.js 20+](https://nodejs.org/)
-
-### Run the backend
+**Prerequisites:** [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), [Node.js 20+](https://nodejs.org/)
 
 ```bash
+# Backend — runs on https://localhost:5001
 cd src/PassReset.Web
 dotnet run
-```
 
-### Run the frontend (hot-reload)
-
-```bash
+# Frontend — hot-reload dev server, proxies /api to the backend
 cd src/PassReset.Web/ClientApp
-npm install
+npm ci
 npm run dev
 ```
-
-The Vite dev server proxies `/api` to `https://localhost:5001`.
 
 ### Debug mode (no AD required)
 
@@ -106,84 +143,17 @@ In `src/PassReset.Web/appsettings.Development.json`:
 }
 ```
 
-Use these usernames to exercise specific error states:
+Use these usernames to trigger specific states:
 
 | Username | Result |
 |---|---|
-| *(any other)* | Success |
-| `error` | Generic error |
+| *(anything else)* | Success |
+| `error` | Generic server error |
 | `invalidCredentials` | Wrong current password |
 | `userNotFound` | User not found |
-| `changeNotPermitted` | Not allowed |
-| `pwnedPassword` | Pwned password |
-| `passwordTooYoung` | Too recently changed |
-
----
-
-## Configuration
-
-Settings live in `appsettings.json` (defaults) and `appsettings.Production.json` (overrides, never committed).
-
-### `PasswordChangeOptions`
-```json
-{
-  "PasswordChangeOptions": {
-    "UseAutomaticContext": true,
-    "IdTypeForUser": "UserPrincipalName",
-    "DefaultDomain": "yourdomain.com",
-    "ClearMustChangePasswordFlag": true,
-    "EnforceMinimumPasswordAge": true,
-    "RestrictedAdGroups": ["Domain Admins", "Enterprise Admins"],
-    "AllowedAdGroups": [],
-    "LdapHostnames": ["dc01.yourdomain.com"],
-    "LdapPort": 389,
-    "LdapUsername": "",
-    "LdapPassword": ""
-  }
-}
-```
-
-- `UseAutomaticContext: true` — domain-joined server, no credentials needed
-- `AllowedAdGroups: []` (empty) — all users permitted; add groups to restrict access
-- Block list takes priority over allow list
-
-### `SmtpSettings`
-```json
-{
-  "SmtpSettings": {
-    "Host": "smtp-relay.yourdomain.com",
-    "Port": 587,
-    "UseSsl": true,
-    "FromAddress": "passreset@yourdomain.com",
-    "FromName": "PassReset Self-Service"
-  }
-}
-```
-
-Port `587` = STARTTLS · Port `465` = SMTPS · Leave `Host` empty to disable email.
-
----
-
-## Deployment
-
-See [`docs/IIS-Setup.md`](docs/IIS-Setup.md) for the full step-by-step guide including certificate setup.
-
-### Quick deploy
-
-```powershell
-# 1. Build
-.\deploy\Publish-PassReset.ps1
-
-# 2. Install to IIS (run as Administrator)
-.\deploy\Install-PassReset.ps1 `
-    -AppPoolIdentity "CORP\svc-passreset" `
-    -AppPoolPassword "S3cr3t!" `
-    -CertThumbprint "A1B2C3D4..."
-
-# 3. Edit C:\inetpub\PassReset\appsettings.Production.json
-```
-
-For AD service account setup and required permissions, see [`docs/AD-ServiceAccount-Setup.md`](docs/AD-ServiceAccount-Setup.md).
+| `changeNotPermitted` | Change not allowed |
+| `pwnedPassword` | Password blocked by breach check |
+| `passwordTooYoung` | Password changed too recently |
 
 ---
 
@@ -191,15 +161,21 @@ For AD service account setup and required permissions, see [`docs/AD-ServiceAcco
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/password` | Returns `ClientSettings` for UI initialisation |
-| `POST` | `/api/password` | Submit password change |
+| `GET` | `/api/password` | Returns UI settings (labels, feature flags, validation rules) |
+| `POST` | `/api/password` | Submit a password change |
 | `GET` | `/health` | Health check |
+
+---
+
+## Support
+
+Open an issue: [github.com/phibu/passreset/issues](https://github.com/phibu/passreset/issues)
 
 ---
 
 ## License
 
-MIT — © 2024–2025 Philippe Buschmann.
+MIT — © 2024–2026 phibu ([github.com/phibu](https://github.com/phibu))
 
-Inspired by [PassCore](https://github.com/unosquare/passcore) © 2016–2022 Unosquare LLC (MIT).
+Inspired by [PassCore](https://github.com/unosquare/passcore) by Unosquare LLC (MIT).
 See [LICENSE](LICENSE) for full text and attribution.
