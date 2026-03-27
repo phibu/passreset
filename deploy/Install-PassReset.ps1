@@ -247,9 +247,9 @@ if ($CertThumbprint) {
     if (-not $cert) {
         Write-Warn "Certificate with thumbprint $CertThumbprint not found in LocalMachine\My — skipping HTTPS binding."
     } else {
-        # Remove existing HTTPS binding on this port if any
+        # Remove existing HTTPS binding on this port if any (pipe the object to avoid binding-string mismatch)
         $existingBinding = Get-WebBinding -Name $SiteName -Protocol https -Port $HttpsPort -ErrorAction SilentlyContinue
-        if ($existingBinding) { Remove-WebBinding -Name $SiteName -Protocol https -Port $HttpsPort }
+        if ($existingBinding) { $existingBinding | Remove-WebBinding }
 
         New-WebBinding -Name $SiteName -Protocol https -Port $HttpsPort -SslFlags 0
         $binding = Get-WebBinding -Name $SiteName -Protocol https -Port $HttpsPort
@@ -264,7 +264,7 @@ if ($CertThumbprint) {
 if ($CertThumbprint -and $HttpPort -le 0) {
     $httpBinding = Get-WebBinding -Name $SiteName -Protocol http -ErrorAction SilentlyContinue
     if ($httpBinding) {
-        Remove-WebBinding -Name $SiteName -Protocol http
+        $httpBinding | Remove-WebBinding
         Write-Ok 'Removed HTTP binding (HTTPS-only mode: -HttpPort 0)'
     }
 } elseif ($CertThumbprint) {
