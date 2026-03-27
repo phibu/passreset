@@ -9,6 +9,7 @@ import Container from '@mui/material/Container';
 import CssBaseline from '@mui/material/CssBaseline';
 import Typography from '@mui/material/Typography';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
+import LockPersonIcon from '@mui/icons-material/LockPerson';
 
 import { PasswordForm } from './components/PasswordForm';
 import { useSettings } from './hooks/useSettings';
@@ -18,6 +19,11 @@ const theme = createTheme({
     fontFamily: '"Inter", "Roboto", "Helvetica Neue", Arial, sans-serif',
   },
   palette: {
+    primary: {
+      main:  '#0d7377',
+      dark:  '#0a5c60',
+      light: '#14a8ad',
+    },
     background: {
       default: '#f5f5f7',
     },
@@ -26,8 +32,8 @@ const theme = createTheme({
     MuiCard: {
       styleOverrides: {
         root: {
-          borderRadius: 12,
-          boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
+          borderRadius: 16,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.10)',
         },
       },
     },
@@ -65,13 +71,28 @@ export default function App() {
         sx={{
           minHeight: '100vh',
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
           bgcolor: 'background.default',
           py: 4,
+          gap: 3,
         }}
       >
-        <Container maxWidth="sm">
+        {/* Product name header */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <LockPersonIcon sx={{ fontSize: 28, color: 'primary.main' }} />
+          <Typography
+            variant="h6"
+            fontWeight={700}
+            letterSpacing={0.5}
+            sx={{ color: 'primary.main', lineHeight: 1 }}
+          >
+            PassReset
+          </Typography>
+        </Box>
+
+        <Container disableGutters sx={{ maxWidth: 440, width: '100%', px: { xs: 2, sm: 0 } }}>
           <Card>
             <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
 
@@ -125,6 +146,11 @@ export default function App() {
             </CardContent>
           </Card>
         </Container>
+
+        {/* Footer */}
+        <Typography variant="caption" sx={{ color: 'text.disabled' }}>
+          &copy; {new Date().getFullYear()} — Internal IT Tool
+        </Typography>
       </Box>
     </ThemeProvider>
   );

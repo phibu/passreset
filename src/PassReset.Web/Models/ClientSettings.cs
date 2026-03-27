@@ -14,6 +14,7 @@ public class ClientSettings
     public int MinimumScore { get; set; }
     public bool ShowPasswordMeter { get; set; }
     public bool UseEmail { get; set; }
+    public string[] AllowedUsernameAttributes { get; set; } = [];
     public ChangePasswordForm? ChangePasswordForm { get; set; }
     public ErrorsPasswordForm? ErrorsPasswordForm { get; set; }
     public Recaptcha? Recaptcha { get; set; }

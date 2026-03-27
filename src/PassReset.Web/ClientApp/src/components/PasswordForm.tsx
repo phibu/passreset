@@ -49,8 +49,9 @@ function errorMessage(code: number, alerts: ClientSettings['alerts']): string {
     case ApiErrorCode.PwnedPassword:       return a.errorPwnedPassword        ?? 'This password is publicly known. Please choose another.';
     case ApiErrorCode.PasswordTooYoung:    return a.errorPasswordTooYoung     ?? 'Password was changed too recently.';
     case ApiErrorCode.AccountDisabled:     return 'Your account is disabled. Contact IT Support.';
-    case ApiErrorCode.RateLimitExceeded:   return a.errorRateLimitExceeded    ?? 'Too many attempts. Please wait and try again.';
-    default:                               return 'An unexpected error occurred. Please contact IT Support.';
+    case ApiErrorCode.RateLimitExceeded:        return a.errorRateLimitExceeded         ?? 'Too many attempts. Please wait and try again.';
+    case ApiErrorCode.PwnedPasswordCheckFailed: return a.errorPwnedPasswordCheckFailed  ?? 'Could not verify password safety. Please try again.';
+    default:                                    return 'An unexpected error occurred. Please contact IT Support.';
   }
 }
 
@@ -63,6 +64,18 @@ export function PasswordForm({ settings, onSuccess }: Props) {
   // in config — a bad pattern silently disables that check rather than breaking the form.
   const emailRx    = useMemo(() => { try { return regex.emailRegex    ? new RegExp(regex.emailRegex)    : null; } catch { return null; } }, [regex.emailRegex]);
   const usernameRx = useMemo(() => { try { return regex.usernameRegex ? new RegExp(regex.usernameRegex) : null; } catch { return null; } }, [regex.usernameRegex]);
+
+  const attrs = settings.allowedUsernameAttributes;
+  const usernameHint = useMemo(() => {
+    if (!attrs || attrs.length === 0) return null;
+    const parts = attrs.map(attr => {
+      if (attr === 'samaccountname')    return 'username (e.g. jdoe)';
+      if (attr === 'userprincipalname') return 'user principal name (e.g. jdoe@corp.com)';
+      if (attr === 'mail')              return 'email address';
+      return attr;
+    });
+    return 'Enter your ' + parts.join(' or ');
+  }, [attrs]);
 
   const [username, setUsername]                 = useState('');
   const [currentPassword, setCurrentPassword]   = useState('');
@@ -89,7 +102,15 @@ export function PasswordForm({ settings, onSuccess }: Props) {
     if (!newPassword)           { errs.newPassword     = required; }
     if (!newPasswordVerify)     { errs.newPasswordVerify = required; }
 
-    if (username && settings.useEmail && emailRx) {
+    if (username && attrs && attrs.length > 0) {
+      // Apply email regex only when every configured attribute requires an email-format input.
+      const allRequireEmail = attrs.every(a => a === 'userprincipalname' || a === 'mail');
+      if (allRequireEmail && emailRx) {
+        if (!emailRx.test(username))
+          errs.username = errors_.usernameEmailPattern ?? 'Please enter a valid email address.';
+      }
+      // samaccountname (or any combo including it): no regex — bare name and email-format both accepted
+    } else if (username && settings.useEmail && emailRx) {
       if (!emailRx.test(username))
         errs.username = errors_.usernameEmailPattern ?? 'Please enter a valid email address.';
     } else if (username && usernameRx) {
@@ -183,9 +204,11 @@ export function PasswordForm({ settings, onSuccess }: Props) {
         fullWidth
         required
         label={form.usernameLabel ?? 'Username'}
-        helperText={formErrors.username ?? (settings.useEmail
-          ? (form.usernameHelpblock ?? 'Your organisation email address')
-          : (form.usernameDefaultDomainHelperBlock ?? form.usernameHelpblock ?? ''))}
+        helperText={formErrors.username ?? (usernameHint !== null
+          ? usernameHint
+          : (settings.useEmail
+            ? (form.usernameHelpblock ?? 'Your organisation email address')
+            : (form.usernameDefaultDomainHelperBlock ?? form.usernameHelpblock ?? '')))}
         error={!!formErrors.username}
         value={username}
         onChange={e => setUsername(e.target.value)}

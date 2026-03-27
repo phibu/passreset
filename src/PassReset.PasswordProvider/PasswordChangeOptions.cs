@@ -23,7 +23,16 @@ public class PasswordChangeOptions : IAppSettings
     public List<string>? AllowedAdGroups { get; set; }
 
     /// <summary>Gets or sets the identifier type for user lookup.</summary>
+    /// <remarks>Deprecated — use <see cref="AllowedUsernameAttributes"/> instead.</remarks>
     public string? IdTypeForUser { get; set; }
+
+    /// <summary>
+    /// Ordered list of AD attributes accepted as username input.
+    /// The provider tries each in order and uses the first match.
+    /// Supported values: <c>samaccountname</c>, <c>userprincipalname</c>, <c>mail</c>.
+    /// When empty, falls back to <see cref="IdTypeForUser"/>.
+    /// </summary>
+    public string[] AllowedUsernameAttributes { get; set; } = ["samaccountname"];
 
     /// <summary>Gets or sets a value indicating whether to update the last password timestamp.</summary>
     public bool UpdateLastPassword { get; set; }

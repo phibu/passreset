@@ -32,13 +32,12 @@ public sealed class PasswordChangeProvider : IPasswordChangeProvider
     {
         try
         {
-            var fixedUsername = FixUsernameWithDomain(username);
             using var principalContext = AcquirePrincipalContext();
-            var userPrincipal = UserPrincipal.FindByIdentity(principalContext, _idType, fixedUsername);
+            var userPrincipal = FindUser(principalContext, username);
 
             if (userPrincipal == null)
             {
-                _logger.LogWarning("User principal ({Username}) not found", fixedUsername);
+                _logger.LogWarning("User principal ({Username}) not found", username);
                 return new ApiErrorItem(ApiErrorCode.UserNotFound);
             }
 
@@ -54,16 +53,16 @@ public sealed class PasswordChangeProvider : IPasswordChangeProvider
             var pwnedResult = PwnedPasswordChecker.IsPwnedPassword(newPassword);
             if (pwnedResult == true)
             {
-                _logger.LogError("New password for {Username} is publicly known (HaveIBeenPwned)", fixedUsername);
+                _logger.LogError("New password for {Username} is publicly known (HaveIBeenPwned)", username);
                 return new ApiErrorItem(ApiErrorCode.PwnedPassword);
             }
             if (pwnedResult == null)
             {
-                _logger.LogWarning("HaveIBeenPwned API was unreachable for user {Username} — breach check skipped", fixedUsername);
+                _logger.LogWarning("HaveIBeenPwned API was unreachable for user {Username} — breach check skipped", username);
                 return new ApiErrorItem(ApiErrorCode.PwnedPasswordCheckFailed);
             }
 
-            _logger.LogInformation("PerformPasswordChange for user {Username}", fixedUsername);
+            _logger.LogInformation("PerformPasswordChange for user {Username}", username);
 
             var groupItem = ValidateGroups(userPrincipal);
             if (groupItem != null)
@@ -71,7 +70,7 @@ public sealed class PasswordChangeProvider : IPasswordChangeProvider
 
             if (userPrincipal.UserCannotChangePassword)
             {
-                _logger.LogWarning("User principal {Username} cannot change password (UserCannotChangePassword flag)", fixedUsername);
+                _logger.LogWarning("User principal {Username} cannot change password (UserCannotChangePassword flag)", username);
                 return new ApiErrorItem(ApiErrorCode.ChangeNotPermitted);
             }
 
@@ -85,9 +84,12 @@ public sealed class PasswordChangeProvider : IPasswordChangeProvider
             // Capture must-change-at-next-logon state BEFORE the password change
             var mustChangeFlag = IsMustChangePasswordFlagSet(userPrincipal);
 
-            if (!ValidateUserCredentials(userPrincipal.UserPrincipalName, currentPassword, principalContext))
+            var identity = userPrincipal.UserPrincipalName ?? userPrincipal.SamAccountName
+                ?? throw new InvalidOperationException($"User has neither UserPrincipalName nor SamAccountName (input: {username})");
+
+            if (!ValidateUserCredentials(identity, currentPassword, principalContext))
             {
-                _logger.LogWarning("Invalid current password for user {Username}", fixedUsername);
+                _logger.LogWarning("Invalid current password for user {Username}", username);
                 return new ApiErrorItem(ApiErrorCode.InvalidCredentials);
             }
 
@@ -98,7 +100,7 @@ public sealed class PasswordChangeProvider : IPasswordChangeProvider
             if (_options.ClearMustChangePasswordFlag && mustChangeFlag)
                 ClearMustChangeFlag(userPrincipal);
 
-            _logger.LogInformation("Password changed successfully for user {Username}", fixedUsername);
+            _logger.LogInformation("Password changed successfully for user {Username}", username);
         }
         catch (PasswordException passwordEx)
         {
@@ -124,9 +126,8 @@ public sealed class PasswordChangeProvider : IPasswordChangeProvider
     {
         try
         {
-            var fixedUsername = FixUsernameWithDomain(username);
-            using var ctx  = AcquirePrincipalContext();
-            var user = UserPrincipal.FindByIdentity(ctx, _idType, fixedUsername);
+            using var ctx = AcquirePrincipalContext();
+            var user = FindUser(ctx, username);
             return user?.EmailAddress;
         }
         catch (Exception ex)
@@ -336,6 +337,69 @@ public sealed class PasswordChangeProvider : IPasswordChangeProvider
             userPrincipal.SetPassword(newPassword);
             _logger.LogDebug("Password set via SetPassword fallback for user {User}", userPrincipal.Name);
         }
+    }
+
+    /// <summary>
+    /// Resolves a <see cref="UserPrincipal"/> by trying each attribute in
+    /// <see cref="PasswordChangeOptions.AllowedUsernameAttributes"/> in order.
+    /// Falls back to the legacy <see cref="_idType"/> / <see cref="FixUsernameWithDomain"/> path
+    /// when <see cref="PasswordChangeOptions.AllowedUsernameAttributes"/> is empty.
+    /// </summary>
+    private UserPrincipal? FindUser(PrincipalContext ctx, string input)
+    {
+        if (_options.AllowedUsernameAttributes.Length == 0)
+        {
+            var fixed_ = FixUsernameWithDomain(input);
+            return UserPrincipal.FindByIdentity(ctx, _idType, fixed_);
+        }
+
+        foreach (var attr in _options.AllowedUsernameAttributes)
+        {
+            var user = TryFindByAttribute(ctx, attr.Trim().ToLowerInvariant(), input);
+            if (user != null) return user;
+        }
+
+        return null;
+    }
+
+    private UserPrincipal? TryFindByAttribute(PrincipalContext ctx, string attr, string input)
+    {
+        return attr switch
+        {
+            "samaccountname" or "sam" => FindBySamAccountName(ctx, input),
+            "userprincipalname" or "upn" => FindByUserPrincipalName(ctx, input),
+            "mail" or "email" => FindByMail(ctx, input),
+            _ => null,
+        };
+    }
+
+    private static UserPrincipal? FindBySamAccountName(PrincipalContext ctx, string input)
+    {
+        // Strip domain prefix/suffix in all three common formats:
+        //   DOMAIN\jdoe  → jdoe
+        //   jdoe@corp.com → jdoe
+        //   jdoe          → jdoe (unchanged)
+        var sam = input.Contains('\\') ? input[(input.IndexOf('\\') + 1)..] :
+                  input.Contains('@')  ? input[..input.IndexOf('@')]          :
+                  input;
+        return UserPrincipal.FindByIdentity(ctx, IdentityType.SamAccountName, sam);
+    }
+
+    private UserPrincipal? FindByUserPrincipalName(PrincipalContext ctx, string input)
+    {
+        // Append DefaultDomain when the caller supplied a bare username (no @).
+        var upn = !input.Contains('@') && !string.IsNullOrEmpty(_options.DefaultDomain)
+            ? $"{input}@{_options.DefaultDomain}"
+            : input;
+        return UserPrincipal.FindByIdentity(ctx, IdentityType.UserPrincipalName, upn);
+    }
+
+    private static UserPrincipal? FindByMail(PrincipalContext ctx, string mail)
+    {
+        // mail is not a native IdentityType — use query-by-example via PrincipalSearcher.
+        using var template = new UserPrincipal(ctx) { EmailAddress = mail };
+        using var searcher = new PrincipalSearcher(template);
+        return searcher.FindOne() as UserPrincipal;
     }
 
     private void SetIdType()

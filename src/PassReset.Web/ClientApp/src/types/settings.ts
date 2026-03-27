@@ -59,6 +59,7 @@ export interface ClientSettings {
   showPasswordMeter: boolean;
   minimumScore: number;
   useEmail: boolean;
+  allowedUsernameAttributes?: string[];
   recaptcha?: RecaptchaSettings;
   changePasswordForm?: ChangePasswordFormStrings;
   errorsPasswordForm?: ErrorsPasswordForm;
