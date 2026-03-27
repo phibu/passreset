@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Caching.Memory;
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PassReset.Common;
@@ -7,21 +7,26 @@ namespace PassReset.PasswordProvider;
 
 /// <summary>
 /// Decorator around <see cref="IPasswordChangeProvider"/> that tracks per-username
-/// credential failure counts in an in-process memory cache and blocks requests before
-/// they reach Active Directory once the portal lockout threshold is reached.
+/// credential failure counts and blocks requests before they reach Active Directory
+/// once the portal lockout threshold is reached.
 ///
 /// This prevents both accidental self-lockout (AD lockout from repeated typos) and
 /// targeted lockout attacks (an attacker burning the AD bad-password quota for a victim).
 /// The counter is keyed on the normalised username (SAM part only, lowercase), so it is
-/// effective regardless of how many source IPs the caller rotates through.
+/// effective regardless of how the caller formats the input or which IP they use.
 ///
-/// Threshold semantics:
-///   failures &lt; threshold        → request is passed through to the inner provider
-///   failures == threshold - 1   → inner provider is called; on InvalidCredentials the
-///                                  response is upgraded to <see cref="ApiErrorCode.ApproachingLockout"/>
-///                                  to signal the UI to show a warning banner
-///   failures &gt;= threshold       → <see cref="ApiErrorCode.PortalLockout"/> is returned
-///                                  immediately without contacting AD
+/// Threshold semantics (example: threshold = 3):
+///   failures 1–2  → request is passed through to the inner provider
+///   failure  3    → inner provider is called; on InvalidCredentials the response is
+///                   upgraded to <see cref="ApiErrorCode.ApproachingLockout"/> to signal
+///                   the UI to show a warning banner ("next attempt will lock you out")
+///   failure  4+   → <see cref="ApiErrorCode.PortalLockout"/> is returned immediately
+///                   without contacting AD
+///
+/// The lockout window is <em>absolute</em>: the expiry is fixed at the time of the first
+/// failure and is never reset by subsequent failures within the window. This prevents an
+/// attacker from keeping the counter perpetually alive by spacing attempts just under the
+/// window boundary.
 ///
 /// Set <see cref="PasswordChangeOptions.PortalLockoutThreshold"/> to 0 to disable.
 /// </summary>
@@ -29,19 +34,21 @@ public sealed class LockoutPasswordChangeProvider : IPasswordChangeProvider
 {
     private const string CacheKeyPrefix = "portal_lockout:";
 
+    // Thread-safe counter store: key → (failure count, absolute expiry).
+    // Using ConcurrentDictionary + AddOrUpdate guarantees atomic increment without locks.
+    private readonly ConcurrentDictionary<string, (int Count, DateTimeOffset Expiry)> _counters
+        = new(StringComparer.Ordinal);
+
     private readonly IPasswordChangeProvider _inner;
-    private readonly IMemoryCache _cache;
     private readonly PasswordChangeOptions _options;
     private readonly ILogger<LockoutPasswordChangeProvider> _logger;
 
     public LockoutPasswordChangeProvider(
         IPasswordChangeProvider inner,
-        IMemoryCache cache,
         IOptions<PasswordChangeOptions> options,
         ILogger<LockoutPasswordChangeProvider> logger)
     {
         _inner   = inner;
-        _cache   = cache;
         _options = options.Value;
         _logger  = logger;
     }
@@ -53,14 +60,17 @@ public sealed class LockoutPasswordChangeProvider : IPasswordChangeProvider
 
         if (threshold > 0)
         {
-            var key   = BuildCacheKey(username);
-            var count = _cache.TryGetValue<int>(key, out var c) ? c : 0;
+            var key = BuildCacheKey(username);
+            var now = DateTimeOffset.UtcNow;
 
-            if (count >= threshold)
+            if (_counters.TryGetValue(key, out var entry)
+                && now < entry.Expiry
+                && entry.Count >= threshold)
             {
                 _logger.LogWarning(
                     "Portal lockout active for {Username} — {Count}/{Threshold} failures in window, AD not contacted",
-                    username, count, threshold);
+                    username, entry.Count, threshold);
+
                 return new ApiErrorItem(ApiErrorCode.PortalLockout);
             }
         }
@@ -70,23 +80,25 @@ public sealed class LockoutPasswordChangeProvider : IPasswordChangeProvider
         if (threshold > 0)
         {
             var key = BuildCacheKey(username);
+            var now = DateTimeOffset.UtcNow;
 
             if (result?.ErrorCode == ApiErrorCode.InvalidCredentials)
             {
-                var newCount = IncrementCounter(key);
+                var newCount = IncrementCounter(key, now);
 
                 _logger.LogWarning(
                     "Portal failure counter for {Username}: {Count}/{Threshold}",
                     username, newCount, threshold);
 
-                // Warn on the attempt BEFORE lockout so the user knows to be careful.
-                if (newCount == threshold - 1)
+                // Warn on the attempt that hits the threshold exactly: the *next* attempt
+                // will be blocked. This ensures "one more attempt will lock you out" is accurate.
+                if (newCount == threshold)
                     return new ApiErrorItem(ApiErrorCode.ApproachingLockout);
             }
             else if (result is null)
             {
                 // Successful password change — reset the counter immediately.
-                _cache.Remove(key);
+                _counters.TryRemove(key, out _);
             }
         }
 
@@ -105,14 +117,24 @@ public sealed class LockoutPasswordChangeProvider : IPasswordChangeProvider
 
     // ─── Private helpers ──────────────────────────────────────────────────────
 
-    private int IncrementCounter(string key)
+    /// <summary>
+    /// Atomically increments the failure counter for <paramref name="key"/>.
+    /// The expiry is set once on the <em>first</em> failure and never extended,
+    /// making the lockout window absolute rather than sliding.
+    /// If the existing entry has already expired it is treated as a fresh start.
+    /// </summary>
+    private int IncrementCounter(string key, DateTimeOffset now)
     {
-        var current  = _cache.TryGetValue<int>(key, out var c) ? c : 0;
-        var newCount = current + 1;
-        _cache.Set(key, newCount, new MemoryCacheEntryOptions
-        {
-            AbsoluteExpirationRelativeToNow = _options.PortalLockoutWindow,
-        });
+        var window = _options.PortalLockoutWindow;
+
+        var (newCount, _) = _counters.AddOrUpdate(
+            key,
+            addValueFactory:    _ => (1, now + window),
+            updateValueFactory: (_, existing) =>
+                now >= existing.Expiry
+                    ? (1, now + window)                              // window expired — start fresh
+                    : (existing.Count + 1, existing.Expiry));        // keep original expiry (absolute window)
+
         return newCount;
     }
 
