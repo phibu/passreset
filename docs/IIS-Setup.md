@@ -183,6 +183,9 @@ On the **IIS server**, run as **Administrator**:
     -CertThumbprint   "PASTE_THUMBPRINT_HERE" `
     -AppPoolIdentity  "YOURDOMAIN\svc-passreset" `
     -AppPoolPassword  (Read-Host 'App pool password' -AsSecureString)
+
+# Upgrading an existing installation (unattended — skip confirmation prompt)
+.\deploy\Install-PassReset.ps1 -Force -CertThumbprint "PASTE_THUMBPRINT_HERE"
 ```
 
 The installer:
@@ -191,7 +194,9 @@ The installer:
 - Copies files with robocopy
 - Grants NTFS permissions
 - Configures the HTTPS binding
-- Writes a starter `appsettings.Production.json`
+- Writes a starter `appsettings.Production.json` (skipped if the file already exists)
+
+**Upgrading:** when an existing PassReset site is detected the installer displays the installed and incoming version numbers, prompts for confirmation, and creates a dated backup of the current deployment (e.g. `C:\inetpub\PassReset_backup_20260327-1430\`) before overwriting. Pass `-Force` to skip the confirmation for unattended deployments.
 
 ---
 
@@ -207,7 +212,10 @@ Edit `C:\inetpub\PassReset\appsettings.Production.json`:
   },
   "PasswordChangeOptions": {
     "UseAutomaticContext": true,
+    "AllowedUsernameAttributes": [ "samaccountname" ],
     "DefaultDomain": "yourdomain.com",
+    "PortalLockoutThreshold": 3,
+    "PortalLockoutWindow": "00:30:00",
     "ClearMustChangePasswordFlag": true,
     "EnforceMinimumPasswordAge": true
   },
@@ -219,7 +227,7 @@ Edit `C:\inetpub\PassReset\appsettings.Production.json`:
     "FromName": "PassReset Self-Service"
   },
   "ClientSettings": {
-    "UseEmail": true,
+    "AllowedUsernameAttributes": [ "samaccountname" ],
     "ShowPasswordMeter": true,
     "Recaptcha": {
       "Enabled": false,
@@ -229,6 +237,8 @@ Edit `C:\inetpub\PassReset\appsettings.Production.json`:
   }
 }
 ```
+
+> The starter `appsettings.Production.json` written by the installer contains all available keys with defaults. The snippet above shows the keys most commonly changed. See [`appsettings-Production.md`](appsettings-Production.md) for the full reference.
 
 ---
 

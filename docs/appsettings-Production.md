@@ -25,7 +25,10 @@ This file overrides `appsettings.json` in production. Place it in the same folde
 ```json
 "PasswordChangeOptions": {
   "UseAutomaticContext": true,
+  "AllowedUsernameAttributes": [ "samaccountname" ],
   "IdTypeForUser": "UserPrincipalName",
+  "PortalLockoutThreshold": 3,
+  "PortalLockoutWindow": "00:30:00",
   "DefaultDomain": "yourdomain.com",
   "ClearMustChangePasswordFlag": true,
   "EnforceMinimumPasswordAge": true,
@@ -43,7 +46,10 @@ This file overrides `appsettings.json` in production. Place it in the same folde
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `UseAutomaticContext` | bool | `true` | `true` = domain-joined server, uses machine credentials automatically. `false` = supply `LdapHostnames`, `LdapUsername`, `LdapPassword`. |
-| `IdTypeForUser` | string | `UserPrincipalName` | How users are looked up in AD. Options: `UserPrincipalName`, `SamAccountName`, `DistinguishedName`, `Sid`, `Guid`, `Name`. |
+| `AllowedUsernameAttributes` | string[] | `["samaccountname"]` | AD attributes tried in order when looking up a user. Options: `samaccountname`, `userprincipalname`, `mail`. |
+| `IdTypeForUser` | string | `UserPrincipalName` | How the user identity is bound after lookup. Options: `UserPrincipalName`, `SamAccountName`, `DistinguishedName`, `Sid`, `Guid`, `Name`. |
+| `PortalLockoutThreshold` | int | `3` | Number of consecutive wrong-password attempts before the portal blocks further attempts (without touching AD). `0` = disabled. |
+| `PortalLockoutWindow` | string | `"00:30:00"` | Duration of the portal lockout window (`hh:mm:ss`). The window is absolute — it starts at the first failure and is not reset by subsequent attempts. |
 | `DefaultDomain` | string | `""` | Appended to bare usernames (e.g. `jsmith` → `jsmith@yourdomain.com`) when `IdTypeForUser` is `UserPrincipalName`. |
 | `ClearMustChangePasswordFlag` | bool | `true` | Clears the "must change password at next logon" AD flag after a successful change. |
 | `EnforceMinimumPasswordAge` | bool | `true` | Blocks changes before the AD minimum password age (minPwdAge) has elapsed. |
@@ -136,29 +142,79 @@ Controls the UI and frontend behaviour.
 
 ```json
 "ClientSettings": {
-  "UseEmail": true,
+  "ApplicationTitle": "Change Account Password | Self-Service",
+  "ChangePasswordTitle": "Change Account Password",
+  "UseEmail": false,
   "ShowPasswordMeter": true,
   "UsePasswordGeneration": false,
   "MinimumDistance": 0,
   "PasswordEntropy": 16,
   "MinimumScore": 0,
+  "AllowedUsernameAttributes": [ "samaccountname" ],
   "Recaptcha": {
     "Enabled": false,
     "SiteKey": "",
     "PrivateKey": "",
     "LanguageCode": "en"
+  },
+  "ValidationRegex": {
+    "EmailRegex": "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\\.[a-zA-Z0-9-]+)*$",
+    "UsernameRegex": ""
+  },
+  "ChangePasswordForm": {
+    "HelpText": "If you are having trouble with this tool, please contact IT Support.",
+    "UsernameLabel": "Username",
+    "UsernameHelpblock": "Your organisation email address",
+    "UsernameDefaultDomainHelperBlock": "Your organisation username",
+    "CurrentPasswordLabel": "Current Password",
+    "CurrentPasswordHelpblock": "",
+    "NewPasswordLabel": "New Password",
+    "NewPasswordHelpblock": "Choose a strong password.",
+    "NewPasswordVerifyLabel": "Confirm New Password",
+    "NewPasswordVerifyHelpblock": "",
+    "ChangePasswordButtonLabel": "Change Password"
+  },
+  "ErrorsPasswordForm": {
+    "FieldRequired": "This field is required.",
+    "PasswordMatch": "Passwords do not match.",
+    "UsernameEmailPattern": "Please enter a valid email address.",
+    "UsernamePattern": "Please enter a valid username."
+  },
+  "Alerts": {
+    "SuccessAlertTitle": "Password changed successfully.",
+    "SuccessAlertBody": "Please note it may take a few minutes for your new password to reach all domain controllers.",
+    "ErrorPasswordChangeNotAllowed": "You are not allowed to change your password. Please contact IT Support.",
+    "ErrorInvalidCredentials": "Your current password is incorrect.",
+    "ErrorInvalidDomain": "Invalid domain. Please check your username and try again.",
+    "ErrorInvalidUser": "User account not found.",
+    "ErrorCaptcha": "Could not verify you are not a robot. Please try again.",
+    "ErrorFieldRequired": "Please fill in all required fields.",
+    "ErrorFieldMismatch": "The new passwords do not match.",
+    "ErrorComplexPassword": "The new password does not meet complexity requirements.",
+    "ErrorConnectionLdap": "Could not connect to the directory. Please contact IT Support.",
+    "ErrorScorePassword": "The password is not strong enough. Please choose a stronger password.",
+    "ErrorDistancePassword": "The new password is too similar to your current password.",
+    "ErrorPwnedPassword": "This password has been found in public breach databases. Please choose a different password.",
+    "ErrorPasswordTooYoung": "Your password was changed too recently. Please wait before changing it again.",
+    "ErrorRateLimitExceeded": "Too many attempts. Please wait a few minutes and try again.",
+    "ErrorPwnedPasswordCheckFailed": "The password breach check service is temporarily unavailable. Please try again in a moment.",
+    "ErrorPortalLockout": "Too many failed attempts. Please wait 30 minutes before trying again.",
+    "ErrorApproachingLockout": "Incorrect password. Warning: one more failed attempt will temporarily lock your access to this portal."
   }
 }
 ```
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `UseEmail` | bool | If `true`, the username field accepts an email address. |
-| `ShowPasswordMeter` | bool | Displays a password strength indicator in the form. |
-| `UsePasswordGeneration` | bool | Adds a "generate password" button to the form. |
-| `MinimumDistance` | int | Minimum edit distance between old and new password. `0` = disabled. |
-| `PasswordEntropy` | int | Minimum entropy bits for generated passwords. |
-| `MinimumScore` | int | Minimum zxcvbn score (0–4) required for new passwords. `0` = disabled. |
+| `ApplicationTitle` | string | Browser tab title. |
+| `ChangePasswordTitle` | string | Heading shown on the form card. |
+| `UseEmail` | bool | If `true`, the username field accepts an email address (legacy; prefer `AllowedUsernameAttributes`). |
+| `ShowPasswordMeter` | bool | Displays a password strength indicator (zxcvbn) in the form. |
+| `UsePasswordGeneration` | bool | Adds a "generate password" button to the new-password field. |
+| `MinimumDistance` | int | Minimum Levenshtein distance between old and new password. `0` = disabled. Enforced client- and server-side. |
+| `PasswordEntropy` | int | Entropy bits used by the password generator. |
+| `MinimumScore` | int | Minimum zxcvbn score (0–4). `0` = disabled. UI feedback only — not enforced server-side. |
+| `AllowedUsernameAttributes` | string[] | AD attributes the username field accepts. Options: `samaccountname`, `userprincipalname`, `mail`. Controls the helper text shown below the username field. Must match `PasswordChangeOptions.AllowedUsernameAttributes`. |
 
 ### Recaptcha
 
@@ -168,3 +224,61 @@ Controls the UI and frontend behaviour.
 | `SiteKey` | string | reCAPTCHA v3 site key (public). Loaded in the browser. |
 | `PrivateKey` | string | reCAPTCHA v3 secret key. Used server-side only — never exposed to the client. |
 | `LanguageCode` | string | reCAPTCHA widget language (e.g. `en`, `de`, `fr`). |
+
+### ValidationRegex
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `EmailRegex` | string | Regex applied to the username field when `AllowedUsernameAttributes` contains only email-format attributes (`userprincipalname`, `mail`). |
+| `UsernameRegex` | string | Regex applied to the username field when `samaccountname` is the sole allowed attribute. Leave empty to skip pattern validation. |
+
+### ChangePasswordForm
+
+All strings are optional — defaults are built into the React app. Override any key to localise or customise the form.
+
+| Key | Description |
+|-----|-------------|
+| `HelpText` | Paragraph shown above the form. |
+| `UsernameLabel` | Label for the username field. |
+| `UsernameHelpblock` | Helper text shown below the username field when `UseEmail` is `true`. |
+| `UsernameDefaultDomainHelperBlock` | Helper text shown when `samaccountname` is the accepted attribute. |
+| `CurrentPasswordLabel` | Label for the current-password field. |
+| `NewPasswordLabel` | Label for the new-password field. |
+| `NewPasswordHelpblock` | Helper text below the new-password field. |
+| `NewPasswordVerifyLabel` | Label for the confirm-password field. |
+| `ChangePasswordButtonLabel` | Submit button text. |
+
+### ErrorsPasswordForm
+
+Client-side validation messages (shown before the form is submitted).
+
+| Key | Description |
+|-----|-------------|
+| `FieldRequired` | Shown when a required field is empty. |
+| `PasswordMatch` | Shown when new password and confirmation do not match. |
+| `UsernameEmailPattern` | Shown when the username fails the email regex. |
+| `UsernamePattern` | Shown when the username fails the username regex. |
+
+### Alerts
+
+Server error and success messages returned from the API. All keys are optional; built-in defaults are shown in the JSON example above.
+
+| Key | Description |
+|-----|-------------|
+| `SuccessAlertTitle` | Heading on the success card. |
+| `SuccessAlertBody` | Body text on the success card. |
+| `ErrorInvalidCredentials` | Wrong current password. |
+| `ErrorInvalidUser` | Username not found in AD. |
+| `ErrorPasswordChangeNotAllowed` | User is in a restricted group. |
+| `ErrorInvalidDomain` | Domain portion of the username is not recognised. |
+| `ErrorCaptcha` | reCAPTCHA verification failed. |
+| `ErrorComplexPassword` | New password does not meet AD complexity rules. |
+| `ErrorConnectionLdap` | Could not reach a domain controller. |
+| `ErrorScorePassword` | Password zxcvbn score is below `MinimumScore`. |
+| `ErrorDistancePassword` | New password is too similar to the current one. |
+| `ErrorPwnedPassword` | Password found in HIBP breach database. |
+| `ErrorPasswordTooYoung` | AD minimum password age has not elapsed. |
+| `ErrorRateLimitExceeded` | Built-in rate limiter (5 req / 5 min) triggered. |
+| `ErrorPwnedPasswordCheckFailed` | HIBP API was unreachable; change was blocked. |
+| `ErrorPortalLockout` | Portal lockout threshold reached; AD not contacted. |
+| `ErrorApproachingLockout` | Wrong password and one more attempt will trigger portal lockout. |

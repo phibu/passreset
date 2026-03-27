@@ -6,6 +6,24 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.0.3] — 2026-03-27
+
+### Added
+- `Install-PassReset.ps1`: upgrade detection — shows installed vs incoming version, prompts for confirmation (`Y/N`), creates a dated backup of the current deployment before overwriting (e.g. `PassReset_backup_20260327-1430\`).
+- `Install-PassReset.ps1`: `-Force` switch skips the upgrade confirmation prompt for unattended/CI deployments.
+
+### Fixed
+- `LockoutPasswordChangeProvider`: replaced `IMemoryCache` with `ConcurrentDictionary` — eliminates CI build error (`IMemoryCache` namespace not found in class library), fixes a race condition in the failure counter (non-atomic read-modify-write), corrects an off-by-one (approaching-lockout warning now fires on the attempt that hits the threshold, not one too early), and makes the lockout window absolute rather than sliding.
+- `Install-PassReset.ps1`: `Remove-WebBinding` now pipes the binding object instead of passing named parameters — fixes "Cannot find binding '\*:443:\*'" error when upgrading over an existing installation.
+- `Install-PassReset.ps1`: starter `appsettings.Production.json` now includes all current config keys: `AllowedUsernameAttributes`, `PortalLockoutThreshold`, `PortalLockoutWindow`, `ValidationRegex`, `ChangePasswordForm`, `ErrorsPasswordForm`, and the full `Alerts` section.
+
+### Docs
+- `appsettings-Production.md`: added `AllowedUsernameAttributes`, `PortalLockoutThreshold`, `PortalLockoutWindow` to PasswordChangeOptions; added full `AllowedUsernameAttributes`, `ValidationRegex`, `ChangePasswordForm`, `ErrorsPasswordForm`, and `Alerts` sections to ClientSettings.
+- `IIS-Setup.md`: updated Step 6 with upgrade instructions and `-Force` flag; updated Step 7 config example with new keys.
+- Added `CLAUDE.md` — architecture and build guidance for Claude Code.
+
+---
+
 ## [1.0.2] — 2026-03-27
 
 ### Added
