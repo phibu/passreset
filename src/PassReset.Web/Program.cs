@@ -35,14 +35,29 @@ var expirySettings = builder.Configuration
     .GetSection(nameof(PasswordExpiryNotificationSettings))
     .Get<PasswordExpiryNotificationSettings>() ?? new PasswordExpiryNotificationSettings();
 
+// IMemoryCache is required by LockoutPasswordChangeProvider (per-username failure counter).
+builder.Services.AddMemoryCache();
+
 if (webSettings.UseDebugProvider)
 {
-    builder.Services.AddSingleton<IPasswordChangeProvider, DebugPasswordChangeProvider>();
+    builder.Services.AddSingleton<DebugPasswordChangeProvider>();
+    builder.Services.AddSingleton<IPasswordChangeProvider>(sp =>
+        new LockoutPasswordChangeProvider(
+            sp.GetRequiredService<DebugPasswordChangeProvider>(),
+            sp.GetRequiredService<IMemoryCache>(),
+            sp.GetRequiredService<IOptions<PasswordChangeOptions>>(),
+            sp.GetRequiredService<ILogger<LockoutPasswordChangeProvider>>()));
     builder.Services.AddSingleton<IEmailService, NoOpEmailService>();
 }
 else
 {
-    builder.Services.AddSingleton<IPasswordChangeProvider, PasswordChangeProvider>();
+    builder.Services.AddSingleton<PasswordChangeProvider>();
+    builder.Services.AddSingleton<IPasswordChangeProvider>(sp =>
+        new LockoutPasswordChangeProvider(
+            sp.GetRequiredService<PasswordChangeProvider>(),
+            sp.GetRequiredService<IMemoryCache>(),
+            sp.GetRequiredService<IOptions<PasswordChangeOptions>>(),
+            sp.GetRequiredService<ILogger<LockoutPasswordChangeProvider>>()));
     builder.Services.AddTransient<IEmailService, SmtpEmailService>();
 
     if (expirySettings.Enabled)

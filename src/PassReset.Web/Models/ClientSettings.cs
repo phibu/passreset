@@ -52,6 +52,8 @@ public class Alerts
     public string? ErrorPasswordTooYoung { get; set; }
     public string? ErrorRateLimitExceeded { get; set; }
     public string? ErrorPwnedPasswordCheckFailed { get; set; }
+    public string? ErrorPortalLockout { get; set; }
+    public string? ErrorApproachingLockout { get; set; }
 }
 
 public class ErrorsPasswordForm

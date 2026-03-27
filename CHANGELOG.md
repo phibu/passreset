@@ -8,6 +8,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Portal lockout counter** (`LockoutPasswordChangeProvider`): per-username in-memory failure counter blocks portal access after `PortalLockoutThreshold` consecutive wrong-password attempts for the configured `PortalLockoutWindow` duration. Prevents both self-lockout loops and targeted account lockout via AD.
+- **Approaching-lockout warning**: the UI now shows a `warning` banner when one more failed attempt will trigger the portal block (`ApiErrorCode.ApproachingLockout = 18`).
+- New `ApiErrorCode` values: `PortalLockout` (17) and `ApproachingLockout` (18).
+- `PasswordChangeOptions`: `PortalLockoutThreshold` (default 3) and `PortalLockoutWindow` (default 30 min) configuration keys.
+- `ClientSettings.Alerts`: `ErrorPortalLockout` and `ErrorApproachingLockout` configurable strings.
+
 ### Fixed
 - `Install-PassReset.ps1`: HTTP :80 binding is now retained by default when HTTPS is configured so that `UseHttpsRedirection()` can issue 301 redirects. Pass `-HttpPort 0` for HTTPS-only (no redirect).
 - `IIS-Setup.md`: Step 9 and new `ERR_CONNECTION_REFUSED` troubleshooting entry document the HTTP binding requirement.

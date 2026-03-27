@@ -27,6 +27,22 @@ public class PasswordChangeOptions : IAppSettings
     public string? IdTypeForUser { get; set; }
 
     /// <summary>
+    /// Maximum consecutive failed credential attempts allowed through this portal before
+    /// the username is blocked at the application layer (without contacting AD).
+    /// Set to 0 to disable portal-level lockout. Default: 3.
+    /// Should be set to at least 2 less than the AD account lockout threshold so the
+    /// portal blocks before the AD lockout policy triggers.
+    /// </summary>
+    public int PortalLockoutThreshold { get; set; } = 3;
+
+    /// <summary>
+    /// Duration of the portal lockout window. The failure counter resets after this period.
+    /// Should be greater than or equal to the AD lockout observation window.
+    /// Default: 30 minutes.
+    /// </summary>
+    public TimeSpan PortalLockoutWindow { get; set; } = TimeSpan.FromMinutes(30);
+
+    /// <summary>
     /// Ordered list of AD attributes accepted as username input.
     /// The provider tries each in order and uses the first match.
     /// Supported values: <c>samaccountname</c>, <c>userprincipalname</c>, <c>mail</c>.

@@ -48,6 +48,8 @@ export interface Alerts {
   errorPasswordTooYoung?: string;
   errorRateLimitExceeded?: string;
   errorPwnedPasswordCheckFailed?: string;
+  errorPortalLockout?: string;
+  errorApproachingLockout?: string;
 }
 
 export interface ClientSettings {
@@ -104,4 +106,6 @@ export const ApiErrorCode = {
   AccountDisabled: 14,
   RateLimitExceeded: 15,
   PwnedPasswordCheckFailed: 16,
+  PortalLockout: 17,
+  ApproachingLockout: 18,
 } as const;

@@ -55,4 +55,13 @@ public enum ApiErrorCode
 
     /// <summary>The breach-password check service was unreachable. The change was not blocked — try again.</summary>
     PwnedPasswordCheckFailed = 16,
+
+    /// <summary>Portal-layer lockout: too many consecutive failed attempts. The AD bind was not attempted.</summary>
+    PortalLockout = 17,
+
+    /// <summary>
+    /// Invalid credentials and one more failed attempt will trigger the portal lockout.
+    /// Carries the same semantic as <see cref="InvalidCredentials"/> but signals the UI to show a warning.
+    /// </summary>
+    ApproachingLockout = 18,
 }

@@ -50,7 +50,10 @@ function errorMessage(code: number, alerts: ClientSettings['alerts']): string {
     case ApiErrorCode.PasswordTooYoung:    return a.errorPasswordTooYoung     ?? 'Password was changed too recently.';
     case ApiErrorCode.AccountDisabled:     return 'Your account is disabled. Contact IT Support.';
     case ApiErrorCode.RateLimitExceeded:        return a.errorRateLimitExceeded         ?? 'Too many attempts. Please wait and try again.';
-    case ApiErrorCode.PwnedPasswordCheckFailed: return a.errorPwnedPasswordCheckFailed  ?? 'Could not verify password safety. Please try again.';
+    case ApiErrorCode.PwnedPasswordCheckFailed: return a.errorPwnedPasswordCheckFailed ?? 'Could not verify password safety. Please try again.';
+    case ApiErrorCode.PortalLockout:            return a.errorPortalLockout            ?? 'Too many failed attempts. Please wait before trying again.';
+    // ApproachingLockout uses the configured warning string as both the general error and warning banner.
+    case ApiErrorCode.ApproachingLockout:       return a.errorApproachingLockout       ?? 'Incorrect password. One more failed attempt will temporarily lock your portal access.';
     default:                                    return 'An unexpected error occurred. Please contact IT Support.';
   }
 }
@@ -88,6 +91,7 @@ export function PasswordForm({ settings, onSuccess }: Props) {
 
   const [formErrors, setFormErrors]             = useState<FormErrors>({});
   const [submitting, setSubmitting]             = useState(false);
+  const [approachingLockout, setApproachingLockout] = useState(false);
 
   const { executeRecaptcha } = useRecaptcha(
     settings.recaptcha?.enabled ? settings.recaptcha.siteKey : undefined
@@ -140,6 +144,7 @@ export function PasswordForm({ settings, onSuccess }: Props) {
     if (Object.keys(errs).length > 0) return;
 
     setSubmitting(true);
+    setApproachingLockout(false);
     try {
       const recaptchaToken = settings.recaptcha?.enabled && settings.recaptcha?.siteKey
         ? await executeRecaptcha()
@@ -160,12 +165,15 @@ export function PasswordForm({ settings, onSuccess }: Props) {
 
       const newErrs: FormErrors = {};
       result.errors.forEach((err: ApiErrorItem) => {
+        if (err.errorCode === ApiErrorCode.ApproachingLockout) {
+          setApproachingLockout(true);
+        }
         const msg = errorMessage(err.errorCode, settings.alerts);
-        if (err.fieldName === 'Username')           newErrs.username        = msg;
-        else if (err.fieldName === 'CurrentPassword') newErrs.currentPassword = msg;
-        else if (err.fieldName === 'NewPassword')   newErrs.newPassword     = msg;
+        if (err.fieldName === 'Username')               newErrs.username        = msg;
+        else if (err.fieldName === 'CurrentPassword')   newErrs.currentPassword = msg;
+        else if (err.fieldName === 'NewPassword')       newErrs.newPassword     = msg;
         else if (err.fieldName === 'NewPasswordVerify') newErrs.newPasswordVerify = msg;
-        else                                          newErrs.general         = msg;
+        else                                            newErrs.general         = msg;
       });
       setFormErrors(newErrs);
     } catch {
@@ -285,6 +293,14 @@ export function PasswordForm({ settings, onSuccess }: Props) {
         InputProps={{ endAdornment: visibilityAdornment(showVerify, () => setShowVerify(v => !v)) }}
         sx={{ mb: 3 }}
       />
+
+      {/* Approaching-lockout warning — shown when the next failure will trigger portal lockout */}
+      {approachingLockout && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {settings.alerts?.errorApproachingLockout
+            ?? 'Warning: one more failed attempt will temporarily lock your access to this portal.'}
+        </Alert>
+      )}
 
       {/* General error */}
       {formErrors.general && (
