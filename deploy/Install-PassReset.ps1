@@ -44,6 +44,10 @@
     Password for AppPoolIdentity service account as a SecureString. Only used when AppPoolIdentity is set.
     Pass via: -AppPoolPassword (Read-Host 'App pool password' -AsSecureString)
 
+.PARAMETER Force
+    Skip the interactive upgrade confirmation prompt when an existing installation is detected.
+    Use this for unattended / CI deployments.
+
 .EXAMPLE
     # Minimal — uses built-in app pool identity, no HTTPS binding wired yet:
     .\Install-PassReset.ps1
@@ -65,7 +69,9 @@ param(
     [int]    $HttpPort        = 80,
     [string] $CertThumbprint  = '',
     [string]       $AppPoolIdentity = '',
-    [SecureString] $AppPoolPassword = $null
+    [SecureString] $AppPoolPassword = $null,
+
+    [switch] $Force
 )
 
 Set-StrictMode -Version Latest
@@ -164,6 +170,32 @@ Import-Module WebAdministration -ErrorAction SilentlyContinue
 $poolExists = Test-Path "IIS:\AppPools\$AppPoolName"
 $siteExists = Test-Path "IIS:\Sites\$SiteName"
 
+# ─── Upgrade detection ────────────────────────────────────────────────────────
+
+if ($siteExists) {
+    $deployedExe     = Join-Path $PhysicalPath 'PassReset.Web.exe'
+    $currentVersion  = if (Test-Path $deployedExe) {
+                           (Get-Item $deployedExe).VersionInfo.ProductVersion
+                       } else { 'unknown' }
+    $incomingVersion = (Get-Item $webExe).VersionInfo.ProductVersion
+
+    Write-Host ''
+    Write-Host '  [!!] Existing PassReset installation detected.' -ForegroundColor Yellow
+    Write-Host "       Installed : v$currentVersion"              -ForegroundColor Yellow
+    Write-Host "       Incoming  : v$incomingVersion"             -ForegroundColor Yellow
+    Write-Host ''
+
+    if (-not $Force) {
+        $confirm = Read-Host '  Continue with upgrade? [Y/N]'
+        if ($confirm -notmatch '^[Yy]') {
+            Write-Host "`n  Upgrade cancelled." -ForegroundColor Yellow
+            exit 0
+        }
+    } else {
+        Write-Ok '-Force specified — skipping upgrade confirmation'
+    }
+}
+
 if ($poolExists) {
     $poolState = (Get-WebAppPoolState -Name $AppPoolName).Value
     if ($poolState -eq 'Started') {
@@ -178,6 +210,15 @@ if ($siteExists) {
         Stop-Website -Name $SiteName
         Write-Ok "Stopped site $SiteName"
     }
+}
+
+# Back up the current deployment before overwriting (upgrade only)
+$backupPath = $null
+if ($siteExists) {
+    $backupPath = "${PhysicalPath}_backup_$(Get-Date -Format 'yyyyMMdd-HHmm')"
+    Write-Step "Backing up current installation to $backupPath"
+    Copy-Item -Path $PhysicalPath -Destination $backupPath -Recurse -Force
+    Write-Ok "Backup created: $backupPath"
 }
 
 # Copy publish output (robocopy: /MIR = mirror, /NFL /NDL = quiet)
@@ -402,7 +443,16 @@ Write-Ok "Site $SiteName started"
 
 Write-Host ''
 Write-Host '======================================================' -ForegroundColor Cyan
-Write-Host '  PassReset installed successfully.' -ForegroundColor Green
+if ($backupPath) {
+    Write-Host '  PassReset upgraded successfully.' -ForegroundColor Green
+    Write-Host ''
+    Write-Host '  Backup of previous installation:' -ForegroundColor Yellow
+    Write-Host "    $backupPath"                    -ForegroundColor Yellow
+    Write-Host '  To roll back manually: stop the site, robocopy the backup'
+    Write-Host '  folder back to $PhysicalPath, then start the site.'
+} else {
+    Write-Host '  PassReset installed successfully.' -ForegroundColor Green
+}
 Write-Host ''
 Write-Host '  Next steps:' -ForegroundColor Yellow
 Write-Host "  1. Edit $prodConfig"
