@@ -13,8 +13,8 @@
       1. Tag the commit: git tag v1.2.0
       2. Run: .\deploy\Publish-PassReset.ps1
       3. Upload deploy\PassReset-v1.2.0.zip to the GitHub release as an asset.
-         The zip includes the published app and Install-PassReset.ps1 so that
-         users can deploy without needing to build from source.
+         The zip includes Install-PassReset.ps1, Uninstall-PassReset.ps1,
+         and the published app so that users can deploy without building from source.
 
 .PARAMETER Configuration
     Build configuration. Default: Release
@@ -73,10 +73,12 @@ if (Test-Path $stagingDir) { Remove-Item $stagingDir -Recurse -Force }
 
 # Build staging layout:
 #   _staging\Install-PassReset.ps1
+#   _staging\Uninstall-PassReset.ps1
 #   _staging\publish\*
 $stagingPublish = Join-Path $stagingDir 'publish'
 New-Item -ItemType Directory -Path $stagingPublish | Out-Null
-Copy-Item "$PSScriptRoot\Install-PassReset.ps1" -Destination $stagingDir
+Copy-Item "$PSScriptRoot\Install-PassReset.ps1"   -Destination $stagingDir
+Copy-Item "$PSScriptRoot\Uninstall-PassReset.ps1" -Destination $stagingDir
 Copy-Item "$publishOut\*" -Destination $stagingPublish -Recurse
 
 try {

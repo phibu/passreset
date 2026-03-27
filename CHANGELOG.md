@@ -6,6 +6,17 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.0.4] — 2026-03-27
+
+### Added
+- `Uninstall-PassReset.ps1`: removes the IIS site, app pool, and deployment folder created by the installer. Supports `-KeepFiles` (preserve files for reinstall), `-RemoveBackups` (also delete upgrade backup folders), and `-Force` (unattended). IIS, IIS features, the .NET Hosting Bundle, and certificates are not touched.
+- `Uninstall-PassReset.ps1` is now included in the release zip alongside `Install-PassReset.ps1`.
+
+### Docs
+- `AD-ServiceAccount-Setup.md`: replaced single-OU `dsacls` examples with a reusable `$ous` array + `foreach` loop across all delegation steps (Option A Steps 2–3, Option B Step 5). Added tip for delegating at a parent OU level when all users share a common OU tree.
+
+---
+
 ## [1.0.3] — 2026-03-27
 
 ### Added
@@ -78,7 +89,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [1.0.0] — 2025-03-xx
+## [1.0.0] — 2025-03-25
 
 ### Added
 - Initial PassReset release — complete .NET 10 + React 19 implementation
