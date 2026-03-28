@@ -96,4 +96,49 @@ public class PasswordChangeOptions : IAppSettings
         get => _ldapUsername ?? string.Empty;
         set => _ldapUsername = value;
     }
+
+    /// <summary>
+    /// Strategy used to resolve the recipient email address when sending password-changed notifications.
+    /// Default: <see cref="EmailAddressStrategy.Mail"/>.
+    /// </summary>
+    public EmailAddressStrategy NotificationEmailStrategy { get; set; } = EmailAddressStrategy.Mail;
+
+    /// <summary>
+    /// Domain suffix appended to the SAM account name when
+    /// <see cref="NotificationEmailStrategy"/> is <see cref="EmailAddressStrategy.SamAccountNameAtDomain"/>.
+    /// Falls back to <see cref="DefaultDomain"/> when empty.
+    /// </summary>
+    public string NotificationEmailDomain { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Template string used when <see cref="NotificationEmailStrategy"/> is <see cref="EmailAddressStrategy.Custom"/>.
+    /// Supported placeholders: <c>{samaccountname}</c>, <c>{userprincipalname}</c>, <c>{mail}</c>, <c>{defaultdomain}</c>.
+    /// Example: <c>{samaccountname}@{defaultdomain}</c>
+    /// </summary>
+    public string NotificationEmailTemplate { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Determines how the recipient email address is resolved from AD attributes
+/// for password-changed notification emails.
+/// </summary>
+public enum EmailAddressStrategy
+{
+    /// <summary>Use the AD <c>mail</c> attribute directly (default).</summary>
+    Mail,
+
+    /// <summary>Use the user's <c>userPrincipalName</c> as the email address.</summary>
+    UserPrincipalName,
+
+    /// <summary>
+    /// Compose the address as <c>{samaccountname}@{NotificationEmailDomain}</c>.
+    /// Falls back to <c>{samaccountname}@{DefaultDomain}</c> when <c>NotificationEmailDomain</c> is empty.
+    /// </summary>
+    SamAccountNameAtDomain,
+
+    /// <summary>
+    /// Evaluate <see cref="PasswordChangeOptions.NotificationEmailTemplate"/> against AD attribute values.
+    /// Supported placeholders: <c>{samaccountname}</c>, <c>{userprincipalname}</c>, <c>{mail}</c>, <c>{defaultdomain}</c>.
+    /// </summary>
+    Custom,
 }

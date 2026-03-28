@@ -128,13 +128,44 @@ public sealed class PasswordChangeProvider : IPasswordChangeProvider
         {
             using var ctx = AcquirePrincipalContext();
             var user = FindUser(ctx, username);
-            return user?.EmailAddress;
+            if (user == null) return null;
+
+            return _options.NotificationEmailStrategy switch
+            {
+                EmailAddressStrategy.UserPrincipalName     => user.UserPrincipalName,
+                EmailAddressStrategy.SamAccountNameAtDomain => BuildSamAtDomain(user),
+                EmailAddressStrategy.Custom                => BuildCustomEmail(user),
+                _                                          => user.EmailAddress, // Mail (default)
+            };
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to retrieve email for user {Username}", username);
             return null;
         }
+    }
+
+    private string? BuildSamAtDomain(UserPrincipal user)
+    {
+        var sam = user.SamAccountName;
+        if (string.IsNullOrWhiteSpace(sam)) return null;
+
+        var domain = !string.IsNullOrWhiteSpace(_options.NotificationEmailDomain)
+            ? _options.NotificationEmailDomain
+            : _options.DefaultDomain;
+
+        return string.IsNullOrWhiteSpace(domain) ? null : $"{sam}@{domain}";
+    }
+
+    private string? BuildCustomEmail(UserPrincipal user)
+    {
+        if (string.IsNullOrWhiteSpace(_options.NotificationEmailTemplate)) return null;
+
+        return _options.NotificationEmailTemplate
+            .Replace("{samaccountname}",   user.SamAccountName      ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("{userprincipalname}", user.UserPrincipalName   ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("{mail}",             user.EmailAddress         ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("{defaultdomain}",    _options.DefaultDomain,                   StringComparison.OrdinalIgnoreCase);
     }
 
     /// <inheritdoc />
