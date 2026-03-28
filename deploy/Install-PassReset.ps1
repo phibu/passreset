@@ -389,6 +389,9 @@ if (Test-Path $prodConfig) {
             LdapUseSsl                  = $true
             LdapUsername                = ''
             LdapPassword                = ''
+            NotificationEmailStrategy   = 'Mail'
+            NotificationEmailDomain     = ''
+            NotificationEmailTemplate   = ''
         }
         SmtpSettings = [PSCustomObject]@{
             Host        = 'smtp-relay.yourdomain.com'
@@ -411,6 +414,21 @@ if (Test-Path $prodConfig) {
             PassResetUrl            = 'https://passreset.yourdomain.com'
             ExpiryEmailSubject      = 'Your password will expire soon'
             ExpiryEmailBodyTemplate = "Hello {Username},`n`nYour Active Directory password will expire in {DaysRemaining} day(s) on {ExpiryDate}.`n`nPlease change your password before it expires: {PassResetUrl}"
+        }
+        SiemSettings = [PSCustomObject]@{
+            Syslog = [PSCustomObject]@{
+                Enabled  = $false
+                Host     = 'siem.yourdomain.com'
+                Port     = 514
+                Protocol = 'UDP'
+                Facility = 10
+                AppName  = 'PassReset'
+            }
+            AlertEmail = [PSCustomObject]@{
+                Enabled       = $false
+                Recipients    = @('security@yourdomain.com')
+                AlertOnEvents = @('PortalLockout')
+            }
         }
         ClientSettings = [PSCustomObject]@{
             ApplicationTitle          = 'Change Account Password | Self-Service'

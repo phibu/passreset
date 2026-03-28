@@ -61,6 +61,18 @@ This file overrides `appsettings.json` in production. Place it in the same folde
 | `LdapUseSsl` | bool | `true` | Enables LDAPS (LDAP over TLS). Set to `false` only when LDAPS is unavailable. |
 | `LdapUsername` | string | `""` | Service account UPN or SAM for LDAP bind. Used when `UseAutomaticContext` is `false`. |
 | `LdapPassword` | string | `""` | Password for `LdapUsername`. Store securely — consider using environment variable substitution or a secrets manager. |
+| `NotificationEmailStrategy` | string | `"Mail"` | How the recipient email address is resolved for password-changed notifications. See table below. |
+| `NotificationEmailDomain` | string | `""` | Domain suffix used with `SamAccountNameAtDomain` strategy. Falls back to `DefaultDomain` when empty. |
+| `NotificationEmailTemplate` | string | `""` | Template string used with `Custom` strategy. Placeholders: `{samaccountname}`, `{userprincipalname}`, `{mail}`, `{defaultdomain}`. Example: `{samaccountname}@{defaultdomain}` |
+
+### NotificationEmailStrategy values
+
+| Value | Address resolved as | Example |
+|-------|---------------------|---------|
+| `Mail` | AD `mail` attribute (default) | `jane.doe@company.com` |
+| `UserPrincipalName` | AD `userPrincipalName` attribute | `jdoe@company.com` |
+| `SamAccountNameAtDomain` | `{samaccountname}@{NotificationEmailDomain}` | `jdoe@company.com` |
+| `Custom` | Evaluate `NotificationEmailTemplate` | `{samaccountname}@{defaultdomain}` |
 
 ---
 
@@ -282,3 +294,66 @@ Server error and success messages returned from the API. All keys are optional; 
 | `ErrorPwnedPasswordCheckFailed` | HIBP API was unreachable; change was blocked. |
 | `ErrorPortalLockout` | Portal lockout threshold reached; AD not contacted. |
 | `ErrorApproachingLockout` | Wrong password and one more attempt will trigger portal lockout. |
+
+---
+
+## SiemSettings
+
+Forwards security events to a SIEM via RFC 5424 syslog and/or email alerts. Both channels are opt-in; all keys are optional.
+
+```json
+"SiemSettings": {
+  "Syslog": {
+    "Enabled": false,
+    "Host": "siem.yourdomain.com",
+    "Port": 514,
+    "Protocol": "UDP",
+    "Facility": 10,
+    "AppName": "PassReset"
+  },
+  "AlertEmail": {
+    "Enabled": false,
+    "Recipients": [ "security@yourdomain.com" ],
+    "AlertOnEvents": [ "PortalLockout", "InvalidCredentials" ]
+  }
+}
+```
+
+### Syslog
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `Enabled` | bool | `false` | Set to `true` to enable syslog forwarding. |
+| `Host` | string | `""` | Hostname or IP of the syslog collector / SIEM. |
+| `Port` | int | `514` | UDP/TCP port of the syslog collector. |
+| `Protocol` | string | `"UDP"` | Transport: `UDP` or `TCP`. TCP uses RFC 6587 octet-counting framing. |
+| `Facility` | int | `10` | RFC 5424 facility number. `10` = authpriv (security/auth). Common values: `4`=auth, `16`–`23`=local0–local7. |
+| `AppName` | string | `"PassReset"` | APP-NAME field in the syslog header. |
+
+Each syslog message follows RFC 5424 format with a structured-data element:
+```
+<priority>1 <timestamp> <hostname> PassReset - - - [PassReset@0 event="..." user="..." ip="..."]
+```
+
+### AlertEmail
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `Enabled` | bool | `false` | Set to `true` to enable email alerts. Requires `SmtpSettings.Host` to be set. |
+| `Recipients` | string[] | `[]` | One or more recipient email addresses for alert messages. |
+| `AlertOnEvents` | string[] | `["PortalLockout"]` | Event type names that trigger an email alert. |
+
+### AlertOnEvents — valid event type names
+
+| Event | When it fires |
+|-------|---------------|
+| `PasswordChanged` | Password changed successfully |
+| `InvalidCredentials` | Wrong current password supplied |
+| `UserNotFound` | Username not found in AD |
+| `PortalLockout` | Portal lockout threshold reached |
+| `ApproachingLockout` | One more wrong attempt will trigger portal lockout |
+| `RateLimitExceeded` | Request rejected by the rate limiter (5 req / 5 min) |
+| `RecaptchaFailed` | reCAPTCHA v3 validation failed |
+| `ChangeNotPermitted` | User blocked by AD group allow/block list |
+| `ValidationFailed` | Request rejected by model validation |
+| `Generic` | Unexpected server-side error |

@@ -6,6 +6,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.0.5] — 2026-03-28
+
+### Added
+- **Configurable notification email strategy** (`PasswordChangeOptions.NotificationEmailStrategy`): choose how the recipient address is resolved for password-changed emails — `Mail` (AD mail attribute, default), `UserPrincipalName`, `SamAccountNameAtDomain` (`{sam}@{NotificationEmailDomain}`), or `Custom` (template string with `{samaccountname}`, `{userprincipalname}`, `{mail}`, `{defaultdomain}` placeholders).
+- **SIEM integration** (`SiemSettings`): security events forwarded via RFC 5424 syslog (UDP or TCP) and/or email alerts. Syslog channel is fully configurable (host, port, protocol, facility, app name). Email alert channel reuses existing SMTP settings and fires on configurable event types (`AlertOnEvents`). Events covered: `PasswordChanged`, `InvalidCredentials`, `UserNotFound`, `PortalLockout`, `ApproachingLockout`, `RateLimitExceeded`, `RecaptchaFailed`, `ChangeNotPermitted`, `ValidationFailed`, `Generic`.
+
+---
+
 ## [1.0.4] — 2026-03-27
 
 ### Added

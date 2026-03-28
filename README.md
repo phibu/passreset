@@ -1,13 +1,17 @@
-# PassReset
+# AD-Passreset-Portal
 
 > Self-service Active Directory password change portal. Employees change their own password in a browser — no helpdesk call needed.
 
 [![GitHub release](https://img.shields.io/github/v/release/phibu/passreset)](https://github.com/phibu/passreset/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-![PassReset UI](docs/screenshot.png)
+![AD-Passreset-Portal UI](docs/screenshot.png)
 
 ---
+
+## Features overview
+
+AD-Passreset-Portal is a self‑service Active Directory password change portal that lets employees change their own Windows domain password from any browser. It combines real‑time password validation, breach‑checking, and portal‑level lockout to protect Active Directory accounts.
 
 ## Features
 
@@ -26,6 +30,8 @@
 | AD group allow/block lists | Restrict which users can self-serve; block list takes priority |
 | Minimum password age | Respects the AD `minPwdAge` policy — prevents changing too soon after the last change |
 | Must-change-at-next-logon | Clears the "must change at next logon" flag after a successful change |
+| Configurable notification email | Choose how the recipient address is resolved: AD mail attribute, UPN, SAM@domain, or a custom template |
+| SIEM integration | Forward security events to a syslog collector (RFC 5424, UDP/TCP) and/or email alerts for selected event types |
 | Rate limiting | 5 requests per 5 minutes per IP address |
 | Security headers | CSP, HSTS, X-Frame-Options DENY, nosniff, Referrer-Policy |
 | Debug mode | Test the full UI without an AD connection |
@@ -33,6 +39,8 @@
 ---
 
 ## Tech Stack
+
+AD-Passreset-Portal is a .NET 10‑based Active Directory password‑change portal built with ASP.NET Core, React, and Material UI. It runs on Windows Server under IIS and integrates directly with Active Directory via `System.DirectoryServices.AccountManagement`.
 
 | Layer | Technology |
 |---|---|
@@ -49,6 +57,8 @@
 
 ## Requirements
 
+To run AD-Passreset-Portal as an Active Directory password‑change portal, you need:
+
 - Windows Server 2022 (recommended) — 2019 and 2025 also supported
 - IIS 10
 - [.NET 10 Hosting Bundle](https://dotnet.microsoft.com/download/dotnet/10.0)
@@ -57,9 +67,9 @@
 
 ---
 
-## Deployment
+## Deployment and installation
 
-Download the latest release zip from [GitHub Releases](https://github.com/phibu/passreset/releases), extract it, then run the installer as Administrator.
+Download the latest release zip from [GitHub Releases](https://github.com/phibu/passreset/releases) and install AD-Passreset-Portal as an IIS‑hosted Active Directory password‑change portal on Windows Server.
 
 ```powershell
 # Fresh install
@@ -159,6 +169,9 @@ Use these usernames to trigger specific states:
 
 ## API
 
+AD-Passreset-Portal exposes a minimal REST API for the self‑service password‑change portal, allowing integration with other tools or dashboards.
+
+
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/password` | Returns UI settings (labels, feature flags, validation rules) |
@@ -169,7 +182,7 @@ Use these usernames to trigger specific states:
 
 ## Support
 
-Open an issue: [github.com/phibu/passreset/issues](https://github.com/phibu/passreset/issues)
+For issues and feature requests, open an issue at [github.com/phibu/passreset/issues](https://github.com/phibu/passreset/issues).
 
 ---
 
