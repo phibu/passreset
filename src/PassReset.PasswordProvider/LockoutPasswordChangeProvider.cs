@@ -30,7 +30,7 @@ namespace PassReset.PasswordProvider;
 ///
 /// Set <see cref="PasswordChangeOptions.PortalLockoutThreshold"/> to 0 to disable.
 /// </summary>
-public sealed class LockoutPasswordChangeProvider : IPasswordChangeProvider
+public sealed class LockoutPasswordChangeProvider : IPasswordChangeProvider, IDisposable
 {
     private const string CacheKeyPrefix = "portal_lockout:";
 
@@ -42,6 +42,7 @@ public sealed class LockoutPasswordChangeProvider : IPasswordChangeProvider
     private readonly IPasswordChangeProvider _inner;
     private readonly PasswordChangeOptions _options;
     private readonly ILogger<LockoutPasswordChangeProvider> _logger;
+    private readonly Timer _cleanupTimer;
 
     public LockoutPasswordChangeProvider(
         IPasswordChangeProvider inner,
@@ -51,7 +52,13 @@ public sealed class LockoutPasswordChangeProvider : IPasswordChangeProvider
         _inner   = inner;
         _options = options.Value;
         _logger  = logger;
+
+        // Sweep expired entries every 5 minutes to prevent unbounded dictionary growth.
+        _cleanupTimer = new Timer(_ => EvictExpiredEntries(), null,
+            TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
     }
+
+    public void Dispose() => _cleanupTimer.Dispose();
 
     /// <inheritdoc />
     public ApiErrorItem? PerformPasswordChange(string username, string currentPassword, string newPassword)
@@ -151,5 +158,20 @@ public sealed class LockoutPasswordChangeProvider : IPasswordChangeProvider
                      normalised.Contains('@')  ? normalised[..normalised.IndexOf('@')]          :
                      normalised;
         return CacheKeyPrefix + normalised;
+    }
+
+    private void EvictExpiredEntries()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var evicted = 0;
+
+        foreach (var kvp in _counters)
+        {
+            if (now >= kvp.Value.Expiry && _counters.TryRemove(kvp.Key, out _))
+                evicted++;
+        }
+
+        if (evicted > 0)
+            _logger.LogDebug("Evicted {Count} expired lockout entries", evicted);
     }
 }

@@ -36,6 +36,7 @@ public class ChangePasswordModel
     }
 
     [Required(ErrorMessage = nameof(ApiErrorCode.FieldRequired))]
+    [MaxLength(256)]
     [Compare(nameof(NewPassword), ErrorMessage = nameof(ApiErrorCode.FieldMismatch))]
     public string NewPasswordVerify
     {
@@ -43,6 +44,7 @@ public class ChangePasswordModel
         set => _newPasswordVerify = value;
     }
 
+    [MaxLength(2048)]
     public string Recaptcha
     {
         get => _recaptcha ?? string.Empty;

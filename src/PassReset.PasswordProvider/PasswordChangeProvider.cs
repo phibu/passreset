@@ -58,8 +58,15 @@ public sealed class PasswordChangeProvider : IPasswordChangeProvider
             }
             if (pwnedResult == null)
             {
-                _logger.LogWarning("HaveIBeenPwned API was unreachable for user {Username} — breach check skipped", username);
-                return new ApiErrorItem(ApiErrorCode.PwnedPasswordCheckFailed);
+                if (_options.FailOpenOnPwnedCheckUnavailable)
+                {
+                    _logger.LogWarning("HaveIBeenPwned API was unreachable for user {Username} — breach check skipped (fail-open)", username);
+                }
+                else
+                {
+                    _logger.LogWarning("HaveIBeenPwned API was unreachable for user {Username} — password change blocked", username);
+                    return new ApiErrorItem(ApiErrorCode.PwnedPasswordCheckFailed);
+                }
             }
 
             _logger.LogInformation("PerformPasswordChange for user {Username}", username);
@@ -357,14 +364,19 @@ public sealed class PasswordChangeProvider : IPasswordChangeProvider
             // COMException is thrown by System.DirectoryServices when the LDAP operation is
             // rejected at the protocol level — typically because the service account has
             // "Reset Password" rights but not "Change Password" rights on the target object.
-            // SetPassword is an administrative reset and is only attempted with explicit credentials.
-            if (_options.UseAutomaticContext)
+            // SetPassword is an administrative reset and is only attempted with explicit credentials
+            // when explicitly opted in, because it bypasses AD password history enforcement.
+            if (_options.UseAutomaticContext || !_options.AllowSetPasswordFallback)
             {
-                _logger.LogWarning(comEx, "ChangePassword failed (HRESULT={HResult}) and SetPassword will not be attempted (UseAutomaticContext=true)", comEx.HResult);
+                _logger.LogWarning(comEx,
+                    "ChangePassword failed (HRESULT={HResult}); SetPassword fallback is {Status} (UseAutomaticContext={Auto}, AllowSetPasswordFallback={Allow})",
+                    comEx.HResult, _options.AllowSetPasswordFallback ? "disabled (auto context)" : "disabled", _options.UseAutomaticContext, _options.AllowSetPasswordFallback);
                 throw;
             }
 
-            _logger.LogWarning(comEx, "ChangePassword failed (HRESULT={HResult}), falling back to SetPassword for user {User}", comEx.HResult, userPrincipal.Name);
+            _logger.LogWarning(comEx,
+                "ChangePassword failed (HRESULT={HResult}), falling back to SetPassword for user {User}. Note: SetPassword bypasses AD password history.",
+                comEx.HResult, userPrincipal.Name);
             userPrincipal.SetPassword(newPassword);
             _logger.LogDebug("Password set via SetPassword fallback for user {User}", userPrincipal.Name);
         }

@@ -10,6 +10,13 @@ namespace PassReset.PasswordProvider;
 /// so it can be called from the synchronous IPasswordChangeProvider interface.
 /// See https://haveibeenpwned.com/API/v2#PwnedPasswords
 /// </summary>
+/// <remarks>
+/// <b>Known limitation:</b> <see cref="HttpClient.Send"/> blocks a thread pool thread
+/// for up to 5 seconds per call. Under concurrent load this can cause thread pool pressure.
+/// The synchronous constraint originates from the <see cref="IPasswordChangeProvider"/>
+/// interface and the underlying <c>System.DirectoryServices</c> APIs which are also synchronous.
+/// A future version should make the entire provider chain async to eliminate this bottleneck.
+/// </remarks>
 internal static class PwnedPasswordChecker
 {
     // Static HttpClient avoids socket exhaustion on repeated calls.

@@ -60,6 +60,7 @@ public sealed class PasswordController : ControllerBase
     /// </summary>
     [HttpPost]
     [EnableRateLimiting("password-fixed-window")]
+    [RequestSizeLimit(8192)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]

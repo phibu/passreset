@@ -17,6 +17,11 @@ export async function changePassword(request: ChangePasswordRequest): Promise<Ap
     return { errors: [{ errorCode: 15 }] };
   }
 
+  const contentType = res.headers.get('content-type') ?? '';
+  if (!contentType.includes('application/json')) {
+    return { errors: [{ errorCode: 0, message: 'An unexpected server error occurred.' }] };
+  }
+
   const data: ApiResult = await res.json();
   return data;
 }

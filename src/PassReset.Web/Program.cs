@@ -80,13 +80,16 @@ builder.Services.AddRateLimiter(options =>
         return ValueTask.CompletedTask;
     };
 
-    options.AddFixedWindowLimiter(PasswordRateLimitPolicy, limiterOptions =>
-    {
-        limiterOptions.PermitLimit          = 5;
-        limiterOptions.Window               = TimeSpan.FromMinutes(5);
-        limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-        limiterOptions.QueueLimit           = 0;  // no queuing — reject immediately
-    });
+    options.AddPolicy(PasswordRateLimitPolicy, context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit          = 5,
+                Window               = TimeSpan.FromMinutes(5),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit           = 0,  // no queuing — reject immediately
+            }));
 });
 
 // ─── MVC / API ────────────────────────────────────────────────────────────────
@@ -109,7 +112,10 @@ app.Use(async (context, next) =>
         "style-src 'self' 'unsafe-inline'; " +
         "frame-src https://www.google.com/recaptcha/ https://recaptcha.google.com/recaptcha/; " +
         "img-src 'self' data:; " +
-        "connect-src 'self'";
+        "connect-src 'self'; " +
+        "base-uri 'self'; " +
+        "form-action 'self'; " +
+        "object-src 'none'";
 
     if (webSettings.EnableHttpsRedirect)
         headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";

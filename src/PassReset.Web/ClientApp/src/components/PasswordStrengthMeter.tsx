@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import LinearProgress from '@mui/material/LinearProgress';
 import Typography from '@mui/material/Typography';
@@ -16,18 +16,30 @@ type ZxcvbnFn = (password: string) => { score: 0 | 1 | 2 | 3 | 4 };
 export function PasswordStrengthMeter({ password }: Props) {
   const [score, setScore] = useState<0 | 1 | 2 | 3 | 4>(0);
   const [loaded, setLoaded] = useState(false);
+  const zxcvbnRef = useRef<ZxcvbnFn | null>(null);
 
   useEffect(() => {
     if (!password) return;
     let cancelled = false;
-    import('zxcvbn').then(mod => {
-      if (!cancelled) {
-        setLoaded(true);
-        const zxcvbn = mod.default as ZxcvbnFn;
-        setScore(zxcvbn(password).score);
+    const timer = setTimeout(() => {
+      const evaluate = (fn: ZxcvbnFn) => {
+        if (!cancelled) setScore(fn(password).score);
+      };
+
+      if (zxcvbnRef.current) {
+        evaluate(zxcvbnRef.current);
+      } else {
+        import('zxcvbn').then(mod => {
+          if (!cancelled) {
+            const fn = mod.default as ZxcvbnFn;
+            zxcvbnRef.current = fn;
+            setLoaded(true);
+            evaluate(fn);
+          }
+        }).catch(() => {/* ignore load errors */});
       }
-    }).catch(() => {/* ignore load errors */});
-    return () => { cancelled = true; };
+    }, 250);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [password]);
 
   if (!password || !loaded) return null;

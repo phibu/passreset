@@ -59,6 +59,21 @@ public class PasswordChangeOptions : IAppSettings
     public bool ClearMustChangePasswordFlag { get; set; } = true;
 
     /// <summary>
+    /// When true, allows password changes to proceed when the HaveIBeenPwned API is
+    /// unreachable. The breach check is skipped with a warning log entry.
+    /// When false (default), unreachable HIBP API blocks the password change.
+    /// </summary>
+    public bool FailOpenOnPwnedCheckUnavailable { get; set; }
+
+    /// <summary>
+    /// When true, falls back to the administrative <c>SetPassword</c> API if the user-initiated
+    /// <c>ChangePassword</c> call fails with a COMException (only when <see cref="UseAutomaticContext"/> is false).
+    /// Warning: <c>SetPassword</c> bypasses AD password history enforcement.
+    /// Default: false.
+    /// </summary>
+    public bool AllowSetPasswordFallback { get; set; }
+
+    /// <summary>
     /// When true, blocks password changes that occur before the domain minimum password age (minPwdAge) has elapsed.
     /// </summary>
     public bool EnforceMinimumPasswordAge { get; set; } = true;

@@ -129,9 +129,27 @@ internal sealed class SiemService : ISiemService
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
-    /// <summary>Escapes RFC 5424 SD-PARAM special characters: backslash, double-quote, closing bracket.</summary>
-    private static string EscapeSd(string value) =>
-        value.Replace("\\", "\\\\", StringComparison.Ordinal)
-             .Replace("\"", "\\\"", StringComparison.Ordinal)
-             .Replace("]",  "\\]",  StringComparison.Ordinal);
+    /// <summary>
+    /// Escapes RFC 5424 SD-PARAM special characters (backslash, double-quote, closing bracket)
+    /// and strips control characters (U+0000–U+001F, U+007F) to prevent syslog injection.
+    /// </summary>
+    private static string EscapeSd(string value)
+    {
+        var cleaned = StripControlChars(value);
+        return cleaned.Replace("\\", "\\\\", StringComparison.Ordinal)
+                      .Replace("\"", "\\\"", StringComparison.Ordinal)
+                      .Replace("]",  "\\]",  StringComparison.Ordinal);
+    }
+
+    private static string StripControlChars(string input) =>
+        string.Create(input.Length, input, static (span, src) =>
+        {
+            var pos = 0;
+            foreach (var ch in src)
+            {
+                if (ch >= '\x20' && ch != '\x7F')
+                    span[pos++] = ch;
+            }
+            span[pos..].Fill('\0');
+        }).TrimEnd('\0');
 }
