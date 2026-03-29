@@ -138,4 +138,7 @@ app.UseRateLimiter();
 
 app.MapControllers();
 
+// SPA fallback — serves index.html for non-API, non-file routes so deep links work.
+app.MapFallbackToFile("index.html");
+
 app.Run();

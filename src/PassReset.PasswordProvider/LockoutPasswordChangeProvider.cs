@@ -29,6 +29,12 @@ namespace PassReset.PasswordProvider;
 /// window boundary.
 ///
 /// Set <see cref="PasswordChangeOptions.PortalLockoutThreshold"/> to 0 to disable.
+///
+/// <b>IIS deployment note:</b> Lockout state is held in-process memory and is lost on
+/// application pool recycle. The IIS app pool <c>MaxProcesses</c> must remain at 1
+/// (the default) to ensure consistent lockout enforcement. If multiple worker processes
+/// are used, each maintains an independent counter, effectively multiplying the lockout
+/// threshold. A periodic timer evicts expired entries to prevent unbounded memory growth.
 /// </summary>
 public sealed class LockoutPasswordChangeProvider : IPasswordChangeProvider, IDisposable
 {

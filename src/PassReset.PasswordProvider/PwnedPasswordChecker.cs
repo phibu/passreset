@@ -20,7 +20,11 @@ namespace PassReset.PasswordProvider;
 internal static class PwnedPasswordChecker
 {
     // Static HttpClient avoids socket exhaustion on repeated calls.
-    private static readonly HttpClient _http = new()
+    // PooledConnectionLifetime ensures DNS changes are respected without restarting the process.
+    private static readonly HttpClient _http = new(new SocketsHttpHandler
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+    })
     {
         Timeout = TimeSpan.FromSeconds(5),
     };

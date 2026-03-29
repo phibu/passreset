@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Mvc;
-using System.Reflection;
 
 namespace PassReset.Web.Controllers;
 
@@ -11,13 +10,6 @@ namespace PassReset.Web.Controllers;
 [Route("api/[controller]")]
 public sealed class HealthController : ControllerBase
 {
-    private static readonly string _version =
-        Assembly.GetExecutingAssembly()
-                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-                ?.InformationalVersion
-        ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString()
-        ?? "0.0.0";
-
     /// <summary>Returns the application health status.</summary>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -26,6 +18,5 @@ public sealed class HealthController : ControllerBase
         {
             status    = "healthy",
             timestamp = DateTimeOffset.UtcNow,
-            version   = _version,
         });
 }

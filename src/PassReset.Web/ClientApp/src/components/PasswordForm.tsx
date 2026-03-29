@@ -294,20 +294,23 @@ export function PasswordForm({ settings, onSuccess }: Props) {
         sx={{ mb: 3 }}
       />
 
-      {/* Approaching-lockout warning — shown when the next failure will trigger portal lockout */}
-      {approachingLockout && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          {settings.alerts?.errorApproachingLockout
-            ?? 'Warning: one more failed attempt will temporarily lock your access to this portal.'}
-        </Alert>
-      )}
+      {/* Live region for screen reader announcements of dynamic errors */}
+      <Box aria-live="assertive" aria-atomic="true">
+        {/* Approaching-lockout warning — shown when the next failure will trigger portal lockout */}
+        {approachingLockout && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {settings.alerts?.errorApproachingLockout
+              ?? 'Warning: one more failed attempt will temporarily lock your access to this portal.'}
+          </Alert>
+        )}
 
-      {/* General error */}
-      {formErrors.general && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {formErrors.general}
-        </Alert>
-      )}
+        {/* General error */}
+        {formErrors.general && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {formErrors.general}
+          </Alert>
+        )}
+      </Box>
 
       <Button
         type="submit"

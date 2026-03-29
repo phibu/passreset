@@ -24,7 +24,11 @@ public sealed class PasswordController : ControllerBase
     private readonly ILogger<PasswordController> _logger;
 
     // Static HttpClient for reCAPTCHA v3 verification — avoids socket exhaustion.
-    private static readonly HttpClient _recaptchaHttp = new()
+    // PooledConnectionLifetime ensures DNS changes are respected without restarting the process.
+    private static readonly HttpClient _recaptchaHttp = new(new SocketsHttpHandler
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+    })
     {
         BaseAddress = new Uri("https://www.google.com/"),
         Timeout     = TimeSpan.FromSeconds(10),
@@ -160,7 +164,7 @@ public sealed class PasswordController : ControllerBase
         _                                => SiemEventType.Generic,
     };
 
-    private static async Task<bool> ValidateRecaptchaAsync(
+    private async Task<bool> ValidateRecaptchaAsync(
         string token, string privateKey, string clientIp)
     {
         try
@@ -183,8 +187,9 @@ public sealed class PasswordController : ControllerBase
                 && json.Score >= 0.5f
                 && string.Equals(json.Action, "change_password", StringComparison.OrdinalIgnoreCase);
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "reCAPTCHA validation failed for IP {ClientIp}", clientIp);
             return false;
         }
     }

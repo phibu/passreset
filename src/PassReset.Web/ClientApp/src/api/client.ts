@@ -3,6 +3,9 @@ import type { ApiResult, ChangePasswordRequest, ClientSettings } from '../types/
 export async function fetchSettings(): Promise<ClientSettings> {
   const res = await fetch('/api/password');
   if (!res.ok) throw new Error(`Failed to load settings: ${res.status}`);
+  const contentType = res.headers.get('content-type') ?? '';
+  if (!contentType.includes('application/json'))
+    throw new Error('Unexpected response format from settings endpoint');
   return res.json() as Promise<ClientSettings>;
 }
 

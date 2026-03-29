@@ -11,7 +11,7 @@ namespace PassReset.Web.Services;
 /// and optional email alerts through the configured <see cref="IEmailService"/>.
 /// All failures are swallowed and logged — SIEM errors must never affect the user-facing response.
 /// </summary>
-internal sealed class SiemService : ISiemService
+internal sealed class SiemService : ISiemService, IDisposable
 {
     // RFC 5424 severity numbers
     private static readonly Dictionary<SiemEventType, int> SeverityMap = new()
@@ -32,6 +32,12 @@ internal sealed class SiemService : ISiemService
     private readonly IEmailService _emailService;
     private readonly ILogger<SiemService> _logger;
 
+    // Pooled connections for syslog delivery — avoids creating a new connection per event.
+    private readonly object _syslogLock = new();
+    private UdpClient? _udpClient;
+    private TcpClient? _tcpClient;
+    private NetworkStream? _tcpStream;
+
     public SiemService(
         IOptions<SiemSettings> settings,
         IEmailService emailService,
@@ -40,6 +46,13 @@ internal sealed class SiemService : ISiemService
         _settings     = settings.Value;
         _emailService = emailService;
         _logger       = logger;
+    }
+
+    public void Dispose()
+    {
+        _tcpStream?.Dispose();
+        _tcpClient?.Dispose();
+        _udpClient?.Dispose();
     }
 
     /// <inheritdoc />
@@ -82,21 +95,45 @@ internal sealed class SiemService : ISiemService
         }
     }
 
-    private static void SendUdp(string host, int port, byte[] bytes)
+    private void SendUdp(string host, int port, byte[] bytes)
     {
-        using var client = new UdpClient();
-        client.Send(bytes, bytes.Length, host, port);
+        lock (_syslogLock)
+        {
+            _udpClient ??= new UdpClient(host, port);
+            _udpClient.Send(bytes, bytes.Length);
+        }
     }
 
-    private static void SendTcp(string host, int port, byte[] bytes)
+    private void SendTcp(string host, int port, byte[] bytes)
     {
-        using var client = new TcpClient(host, port);
-        using var stream = client.GetStream();
-        // RFC 6587 octet-counting framing
-        var frame = Encoding.ASCII.GetBytes($"{bytes.Length} ");
-        stream.Write(frame, 0, frame.Length);
-        stream.Write(bytes, 0, bytes.Length);
-        stream.Flush();
+        lock (_syslogLock)
+        {
+            try
+            {
+                if (_tcpClient is null || !_tcpClient.Connected)
+                {
+                    _tcpStream?.Dispose();
+                    _tcpClient?.Dispose();
+                    _tcpClient = new TcpClient(host, port);
+                    _tcpStream = _tcpClient.GetStream();
+                }
+
+                // RFC 6587 octet-counting framing
+                var frame = Encoding.ASCII.GetBytes($"{bytes.Length} ");
+                _tcpStream!.Write(frame, 0, frame.Length);
+                _tcpStream.Write(bytes, 0, bytes.Length);
+                _tcpStream.Flush();
+            }
+            catch
+            {
+                // Connection failed — reset so the next call reconnects.
+                _tcpStream?.Dispose();
+                _tcpClient?.Dispose();
+                _tcpStream = null;
+                _tcpClient = null;
+                throw;
+            }
+        }
     }
 
     // ─── Email alerts ─────────────────────────────────────────────────────────

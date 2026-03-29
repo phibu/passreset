@@ -1,68 +1,81 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
-import CircularProgress from '@mui/material/CircularProgress';
 import Container from '@mui/material/Container';
 import CssBaseline from '@mui/material/CssBaseline';
+import Skeleton from '@mui/material/Skeleton';
 import Typography from '@mui/material/Typography';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import LockPersonIcon from '@mui/icons-material/LockPerson';
 
 import { PasswordForm } from './components/PasswordForm';
 import { useSettings } from './hooks/useSettings';
 
-const theme = createTheme({
-  typography: {
-    fontFamily: '"Inter", "Roboto", "Helvetica Neue", Arial, sans-serif',
-  },
-  palette: {
-    primary: {
-      main:  '#0d7377',
-      dark:  '#0a5c60',
-      light: '#14a8ad',
+function buildTheme(prefersDark: boolean) {
+  return createTheme({
+    typography: {
+      fontFamily: '"Inter", "Roboto", "Helvetica Neue", Arial, sans-serif',
     },
-    background: {
-      default: '#f5f5f7',
+    palette: {
+      mode: prefersDark ? 'dark' : 'light',
+      primary: {
+        main:  '#0d7377',
+        dark:  '#0a5c60',
+        light: '#14a8ad',
+      },
+      ...(prefersDark ? {} : {
+        background: {
+          default: '#f5f5f7',
+        },
+      }),
     },
-  },
-  components: {
-    MuiCard: {
-      styleOverrides: {
-        root: {
-          borderRadius: 16,
-          boxShadow: '0 8px 32px rgba(0,0,0,0.10)',
+    components: {
+      MuiCard: {
+        styleOverrides: {
+          root: {
+            borderRadius: 16,
+            boxShadow: prefersDark
+              ? '0 8px 32px rgba(0,0,0,0.30)'
+              : '0 8px 32px rgba(0,0,0,0.10)',
+          },
+        },
+      },
+      MuiTextField: {
+        defaultProps: {
+          variant: 'outlined',
+          size: 'small',
+        },
+      },
+      MuiButton: {
+        styleOverrides: {
+          root: {
+            textTransform: 'none',
+            fontWeight: 600,
+            borderRadius: 8,
+          },
         },
       },
     },
-    MuiTextField: {
-      defaultProps: {
-        variant: 'outlined',
-        size: 'small',
-      },
-    },
-    MuiButton: {
-      styleOverrides: {
-        root: {
-          textTransform: 'none',
-          fontWeight: 600,
-          borderRadius: 8,
-        },
-      },
-    },
-  },
-});
+  });
+}
 
 export default function App() {
+  const prefersDark = useMediaQuery('(prefers-color-scheme: dark)');
+  const theme = useMemo(() => buildTheme(prefersDark), [prefersDark]);
+
   const { settings, loading, error } = useSettings();
   const [succeeded, setSucceeded]    = useState(false);
 
   // Update page title once settings are loaded
-  if (settings?.applicationTitle) {
-    document.title = settings.applicationTitle;
-  }
+  useEffect(() => {
+    if (settings?.applicationTitle) {
+      document.title = settings.applicationTitle;
+    }
+  }, [settings?.applicationTitle]);
 
   return (
     <ThemeProvider theme={theme}>
@@ -101,10 +114,14 @@ export default function App() {
                 {settings?.changePasswordTitle ?? 'Change Account Password'}
               </Typography>
 
-              {/* Loading */}
+              {/* Loading skeleton — preserves layout to minimise CLS */}
               {loading && (
-                <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-                  <CircularProgress />
+                <Box sx={{ py: 1 }}>
+                  <Skeleton variant="rounded" height={40} sx={{ mb: 2 }} />
+                  <Skeleton variant="rounded" height={40} sx={{ mb: 2 }} />
+                  <Skeleton variant="rounded" height={40} sx={{ mb: 2 }} />
+                  <Skeleton variant="rounded" height={40} sx={{ mb: 2 }} />
+                  <Skeleton variant="rounded" height={42} />
                 </Box>
               )}
 
