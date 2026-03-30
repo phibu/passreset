@@ -5,7 +5,11 @@
 [![GitHub release](https://img.shields.io/github/v/release/phibu/passreset)](https://github.com/phibu/passreset/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-![AD-Passreset-Portal UI](docs/screenshot.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/screenshot.png">
+  <img alt="AD-Passreset-Portal UI" src="docs/screenshot.png">
+</picture>
 
 ---
 

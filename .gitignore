@@ -30,6 +30,7 @@ node_modules/
 deploy/publish/
 deploy/*.zip
 deploy/_staging/
+deploy/take-screenshots.mjs
 
 # ── Secrets — never commit ───────────────────────────────────────────────────
 appsettings.Production.json
