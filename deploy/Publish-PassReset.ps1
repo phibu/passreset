@@ -48,8 +48,9 @@ $semver = if ($Version -match '^v?(\d+\.\d+\.\d+.*)$') { $Matches[1] } else { '0
 # Ensures every config key in appsettings.json exists in the production
 # template. Fails the build if keys are missing — no more forgotten config.
 
-$templatePath   = Join-Path $PSScriptRoot 'appsettings.Production.template.json'
-$appSettingsPath = Join-Path $repoRoot 'src\PassReset.Web\appsettings.json'
+$webProject      = Join-Path $repoRoot 'src\PassReset.Web'
+$templatePath    = Join-Path $webProject 'appsettings.Production.template.json'
+$appSettingsPath = Join-Path $webProject 'appsettings.json'
 
 function Get-JsonKeyPaths {
     param([PSCustomObject] $Obj, [string] $Prefix = '')
@@ -86,7 +87,7 @@ $missing = $sourceKeys | Where-Object { $_ -notin $templateKeys }
 if ($missing) {
     Write-Host "`n  [ERR] Production template is missing these config keys:" -ForegroundColor Red
     $missing | ForEach-Object { Write-Host "        - $_" -ForegroundColor Red }
-    Write-Host "`n  Update deploy\appsettings.Production.template.json and retry.`n" -ForegroundColor Red
+    Write-Host "`n  Update src\PassReset.Web\appsettings.Production.template.json and retry.`n" -ForegroundColor Red
     exit 1
 }
 Write-Host "  [OK] Production template covers all config keys" -ForegroundColor Green
@@ -112,6 +113,9 @@ dotnet publish "$repoRoot\src\PassReset.Web\PassReset.Web.csproj" `
     /p:Version=$semver
 Write-Host "  [OK] Published to $publishOut" -ForegroundColor Green
 
+# Copy the production config template into publish output so the installer finds it
+Copy-Item $templatePath -Destination $publishOut
+
 # ── Package release zip ───────────────────────────────────────────────────────
 $zipName    = "PassReset-$Version.zip"
 $zipPath    = Join-Path $PSScriptRoot $zipName
@@ -131,8 +135,6 @@ New-Item -ItemType Directory -Path $stagingPublish | Out-Null
 Copy-Item "$PSScriptRoot\Install-PassReset.ps1"   -Destination $stagingDir
 Copy-Item "$PSScriptRoot\Uninstall-PassReset.ps1" -Destination $stagingDir
 Copy-Item "$publishOut\*" -Destination $stagingPublish -Recurse
-# Ship the production template alongside the app so the installer can find it
-Copy-Item $templatePath -Destination $stagingPublish
 
 try {
     Compress-Archive -Path "$stagingDir\*" -DestinationPath $zipPath -CompressionLevel Optimal

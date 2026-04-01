@@ -386,12 +386,8 @@ $prodConfig = Join-Path $PhysicalPath 'appsettings.Production.json'
 if (Test-Path $prodConfig) {
     Write-Warn "appsettings.Production.json already exists — not overwriting. Edit it manually."
 } else {
-    # The template ships alongside the publish output (copied by Publish-PassReset.ps1)
+    # The template is copied into publish output by Publish-PassReset.ps1
     $templateFile = Join-Path $PhysicalPath 'appsettings.Production.template.json'
-    if (-not (Test-Path $templateFile)) {
-        # Fallback: template next to this script (running from repo checkout)
-        $templateFile = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'appsettings.Production.template.json'
-    }
 
     if (Test-Path $templateFile) {
         Copy-Item $templateFile $prodConfig
