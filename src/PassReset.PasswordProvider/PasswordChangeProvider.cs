@@ -275,9 +275,14 @@ public sealed class PasswordChangeProvider : IPasswordChangeProvider
             catch (Exception ex2)
             {
                 _logger.LogError(new EventId(888), ex2,
-                    "GetAuthorizationGroups() also failed for {User} — allowing by default",
-                    userPrincipal.UserPrincipalName);
-                return null;
+                    "GetAuthorizationGroups() also failed for {User} — {Action} per AllowOnGroupCheckFailure={Flag}",
+                    userPrincipal.UserPrincipalName,
+                    _options.AllowOnGroupCheckFailure ? "allowing" : "denying",
+                    _options.AllowOnGroupCheckFailure);
+                return _options.AllowOnGroupCheckFailure
+                    ? null
+                    : new ApiErrorItem(ApiErrorCode.ChangeNotPermitted,
+                        "Group membership check failed — password change denied for safety");
             }
         }
 

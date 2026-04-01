@@ -66,6 +66,14 @@ public class PasswordChangeOptions : IAppSettings
     public bool FailOpenOnPwnedCheckUnavailable { get; set; }
 
     /// <summary>
+    /// When true, allows the password change if both AD group membership checks
+    /// (GetGroups and GetAuthorizationGroups) fail.
+    /// Default: false (deny on failure — safer).
+    /// BREAKING CHANGE from v1 behavior which allowed by default.
+    /// </summary>
+    public bool AllowOnGroupCheckFailure { get; set; }
+
+    /// <summary>
     /// When true, falls back to the administrative <c>SetPassword</c> API if the user-initiated
     /// <c>ChangePassword</c> call fails with a COMException (only when <see cref="UseAutomaticContext"/> is false).
     /// Warning: <c>SetPassword</c> bypasses AD password history enforcement.
