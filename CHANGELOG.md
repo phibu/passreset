@@ -8,9 +8,28 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- **Group check fallback now denies by default.** When both `GetGroups()` and `GetAuthorizationGroups()` fail for a user, the portal now returns `ChangeNotPermitted` instead of allowing the password change. Set `PasswordChangeOptions.AllowOnGroupCheckFailure` to `true` to restore the previous behavior.
+- **reCAPTCHA score threshold is now configurable.** The hardcoded `0.5` threshold has been replaced by `Recaptcha.ScoreThreshold` (default: `0.5`). Existing behavior is unchanged unless you modify this setting.
+
 ### Added
+
 - **File logging via Serilog**: Errors and warnings are written with full structured context (exception, stack trace, scope properties); info/success lines are terse. Logs go to `%SystemDrive%\inetpub\logs\PassReset\passreset-YYYYMMDD.log` (IIS convention, outside wwwroot so files are not web-accessible). Daily rolling, 30-day retention, 10 MB per-file cap, shared write mode for multi-worker app pools. Usernames and client IPs are logged; passwords are never logged. HTTP request summaries are logged via `UseSerilogRequestLogging`.
 - **Installer log folder + ACL**: `Install-PassReset.ps1` now creates `%SystemDrive%\inetpub\logs\PassReset` and grants `Modify` to the app pool identity (previously created `<site>\logs` under wwwroot).
+- Startup configuration validator checks for incompatible flag combinations. Error-level issues (debug provider in production, reCAPTCHA enabled without key) abort startup. Warning-level issues (email enabled without SMTP, high lockout threshold) are logged.
+- `Recaptcha.FailOpenOnUnavailable` option (default: `false`) distinguishes reCAPTCHA service unavailability from score failure. When enabled, network errors allow the request through; low scores still reject.
+- `Recaptcha.ScoreThreshold` option (default: `0.5`) makes the reCAPTCHA v3 acceptance threshold configurable.
+- `PasswordChangeOptions.AllowOnGroupCheckFailure` option (default: `false`) controls behavior when AD group checks fail.
+- Email retry with exponential backoff (3 attempts: 1s, 10s, 60s) in SmtpEmailService. Permanent SMTP errors (auth, recipient rejection) are not retried.
+- Syslog `ipAddress` parameter escaped via `EscapeSd()` for defense in depth against header spoofing.
+- Lockout dictionary bounded at 10,000 entries. Oldest 25% evicted when cap is exceeded.
+- `/api/health` response includes `lockout.activeEntries` count for monitoring.
+- Password expiry notification group enumeration runs in parallel with SemaphoreSlim(5) cap.
+
+### Changed
+
+- Migrated frontend password strength meter from `zxcvbn` (unmaintained since 2017) to `@zxcvbn-ts/core`. Scoring behavior is preserved.
 
 ---
 
