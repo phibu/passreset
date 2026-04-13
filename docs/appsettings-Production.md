@@ -4,6 +4,52 @@ This file overrides `appsettings.json` in production. Place it in the same folde
 
 ---
 
+## Serilog (file logging)
+
+The default configuration writes to `%SystemDrive%\inetpub\logs\PassReset\passreset-YYYYMMDD.log` (IIS convention, outside wwwroot so files are never web-accessible). The installer creates this folder and grants `Modify` permission to the app pool identity.
+
+**What is logged:**
+- **Errors / warnings** — full structured detail: exception message, stack trace, event properties (username, IP, group, error code, correlation).
+- **Info / success** — one-line records: `Password changed for user {Username}`, `Email sent to {To}`, HTTP request summaries.
+- **Passwords are never logged** — log statements reference usernames, IPs, emails, and group names only.
+
+**Rotation and retention:**
+- Daily rolling: new file each calendar day.
+- 30-day retention: oldest files auto-deleted.
+- 10 MB per-file cap (rolls to `passreset-YYYYMMDD_001.log`, `_002.log`, … within the same day if exceeded).
+- Shared write mode — safe for multi-worker app pools.
+
+**Overriding the defaults** (optional — only if the IIS convention path doesn't suit you):
+
+```json
+"Serilog": {
+  "MinimumLevel": {
+    "Default": "Information",
+    "Override": { "Microsoft.AspNetCore": "Warning" }
+  },
+  "WriteTo": [
+    { "Name": "Console" },
+    {
+      "Name": "File",
+      "Args": {
+        "path": "D:\\Logs\\PassReset\\passreset-.log",
+        "rollingInterval": "Day",
+        "retainedFileCountLimit": 30,
+        "fileSizeLimitBytes": 10485760,
+        "rollOnFileSizeLimit": true,
+        "shared": true
+      }
+    }
+  ]
+}
+```
+
+If you change `path`, ensure the app pool identity has `Modify` rights on the parent folder.
+
+**Relationship to SIEM:** File logs serve ops troubleshooting; the `SiemSettings` syslog/email channel remains for security event forwarding. Both are independent.
+
+---
+
 ## WebSettings
 
 ```json

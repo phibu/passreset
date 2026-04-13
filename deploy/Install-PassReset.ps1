@@ -361,9 +361,11 @@ $acl.SetAccessRule($rule)
 Set-Acl -Path $PhysicalPath -AclObject $acl
 Write-Ok "ReadAndExecute granted to $identity on $PhysicalPath"
 
-# Logs subfolder needs write access
-$logsPath = Join-Path $PhysicalPath 'logs'
-if (-not (Test-Path $logsPath)) { New-Item -ItemType Directory -Path $logsPath | Out-Null }
+# Logs folder — follows IIS convention (%SystemDrive%\inetpub\logs\PassReset),
+# kept outside wwwroot so logs are never web-accessible. Serilog writes
+# passreset-YYYYMMDD.log here (see appsettings.json → Serilog.WriteTo.File.path).
+$logsPath = Join-Path $env:SystemDrive 'inetpub\logs\PassReset'
+if (-not (Test-Path $logsPath)) { New-Item -ItemType Directory -Path $logsPath -Force | Out-Null }
 
 $aclLogs  = Get-Acl $logsPath
 $ruleLogs = New-Object System.Security.AccessControl.FileSystemAccessRule(

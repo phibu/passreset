@@ -6,6 +6,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased]
+
+### Added
+- **File logging via Serilog**: Errors and warnings are written with full structured context (exception, stack trace, scope properties); info/success lines are terse. Logs go to `%SystemDrive%\inetpub\logs\PassReset\passreset-YYYYMMDD.log` (IIS convention, outside wwwroot so files are not web-accessible). Daily rolling, 30-day retention, 10 MB per-file cap, shared write mode for multi-worker app pools. Usernames and client IPs are logged; passwords are never logged. HTTP request summaries are logged via `UseSerilogRequestLogging`.
+- **Installer log folder + ACL**: `Install-PassReset.ps1` now creates `%SystemDrive%\inetpub\logs\PassReset` and grants `Modify` to the app pool identity (previously created `<site>\logs` under wwwroot).
+
+---
+
 ## [1.1.1] — 2026-04-01
 
 ### Added
