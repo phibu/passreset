@@ -19,6 +19,13 @@ updates:
         versions: [">=7.0.0-0"]
       - dependency-name: "@mui/icons-material"
         versions: [">=7.0.0-0"]
+      # ESLint 10 is blocked by eslint-plugin-react-hooks@7.0.1, whose peer
+      # range tops out at ^9. Unblock once the plugin ships a stable release
+      # with ESLint 10 peer support.
+      - dependency-name: "eslint"
+        versions: [">=10.0.0-0"]
+      - dependency-name: "@eslint/js"
+        versions: [">=10.0.0-0"]
 
   - package-ecosystem: "nuget"
     directory: "/src"
