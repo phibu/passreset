@@ -2,10 +2,11 @@
 
 ## Supported Versions
 
-| Version | Supported |
-|---------|-----------|
-| 1.0.x   | Yes       |
-| < 1.0   | No        |
+| Version | Status                        |
+|---------|-------------------------------|
+| 1.2.x   | Supported (current minor)     |
+| 1.1.x   | Security fixes only           |
+| < 1.1   | Not supported                 |
 
 ## Reporting a Vulnerability
 
@@ -63,3 +64,12 @@ PassReset implements defense-in-depth for password security:
 - **Privileged account blocking**: Domain Admins, Enterprise Admins, Schema Admins, Administrators blocked by default
 - **Credentials**: Never logged, never returned in API responses, never stored beyond the LDAP bind operation
 - **SIEM integration**: All security events forwarded via RFC 5424 syslog with configurable email alerts
+
+### Supply chain & repository security
+
+- **Dependabot** is enabled for npm, NuGet, and GitHub Actions with weekly grouped update PRs. Pre-release majors (TypeScript 6, MUI v7+, ESLint 10) are explicitly held back via ignore rules until upstream stable versions exist.
+- **GitHub code scanning (CodeQL)** runs on push and pull request for C#, JavaScript/TypeScript, and GitHub Actions workflows.
+- **Repository rulesets** enforce branch and tag integrity:
+  - `master` requires passing CI and CodeQL status checks, linear history, no force-push, and no branch deletion.
+  - `v*` release tags are immutable — no deletion, no move.
+- **CI workflow permissions** use least-privilege `GITHUB_TOKEN` scopes (`contents: read`), scoped up only where a job genuinely needs to publish release artifacts.
