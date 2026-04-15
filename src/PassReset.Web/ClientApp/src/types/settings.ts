@@ -80,6 +80,15 @@ export interface ClientSettings {
   validationRegex?: ValidationRegex;
   alerts?: Alerts;
   branding?: BrandingSettings;
+  showAdPasswordPolicy?: boolean;
+}
+
+export interface PolicyResponse {
+  minLength: number;
+  requiresComplexity: boolean;
+  historyLength: number;
+  minAgeDays: number;
+  maxAgeDays: number;
 }
 
 export interface ChangePasswordRequest {

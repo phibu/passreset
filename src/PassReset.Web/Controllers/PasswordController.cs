@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using PassReset.Common;
+using PassReset.PasswordProvider;
 using PassReset.Web.Models;
 using PassReset.Web.Services;
 
@@ -21,6 +22,7 @@ public sealed class PasswordController : ControllerBase
     private readonly ISiemService _siemService;
     private readonly IOptions<ClientSettings> _clientSettings;
     private readonly IOptions<EmailNotificationSettings> _emailNotifSettings;
+    private readonly PasswordPolicyCache _policyCache;
     private readonly ILogger<PasswordController> _logger;
 
     // Static HttpClient for reCAPTCHA v3 verification — avoids socket exhaustion.
@@ -40,6 +42,7 @@ public sealed class PasswordController : ControllerBase
         ISiemService siemService,
         IOptions<ClientSettings> clientSettings,
         IOptions<EmailNotificationSettings> emailNotifSettings,
+        PasswordPolicyCache policyCache,
         ILogger<PasswordController> logger)
     {
         _provider           = provider;
@@ -47,6 +50,7 @@ public sealed class PasswordController : ControllerBase
         _siemService        = siemService;
         _clientSettings     = clientSettings;
         _emailNotifSettings = emailNotifSettings;
+        _policyCache        = policyCache;
         _logger             = logger;
     }
 
@@ -57,6 +61,22 @@ public sealed class PasswordController : ControllerBase
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public IActionResult Get() => Ok(_clientSettings.Value);
+
+    /// <summary>
+    /// Returns the effective default-domain password policy from RootDSE (FEAT-002).
+    /// Returns 404 when ShowAdPasswordPolicy is disabled or the AD query fails — the UI
+    /// fails closed and renders nothing.
+    /// </summary>
+    [HttpGet("policy")]
+    [EnableRateLimiting("password-fixed-window")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetPolicyAsync()
+    {
+        if (!_clientSettings.Value.ShowAdPasswordPolicy) return NotFound();
+        var policy = await _policyCache.GetOrFetchAsync();
+        return policy is null ? NotFound() : Ok(policy);
+    }
 
     /// <summary>
     /// Changes the password for the specified user account.

@@ -1,4 +1,4 @@
-import type { ApiResult, ChangePasswordRequest, ClientSettings } from '../types/settings';
+import type { ApiResult, ChangePasswordRequest, ClientSettings, PolicyResponse } from '../types/settings';
 
 export async function fetchSettings(): Promise<ClientSettings> {
   const res = await fetch('/api/password');
@@ -27,4 +27,15 @@ export async function changePassword(request: ChangePasswordRequest): Promise<Ap
 
   const data: ApiResult = await res.json();
   return data;
+}
+
+// FEAT-002: returns null on 404 (disabled or AD failure) so callers can hide the panel.
+export async function fetchPolicy(): Promise<PolicyResponse | null> {
+  try {
+    const res = await fetch('/api/password/policy');
+    if (!res.ok) return null;
+    return (await res.json()) as PolicyResponse;
+  } catch {
+    return null;
+  }
 }

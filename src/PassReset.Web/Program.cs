@@ -138,6 +138,10 @@ try
     // ─── SIEM service ─────────────────────────────────────────────────────────────
     builder.Services.AddSingleton<ISiemService, SiemService>();
 
+    // ─── AD password-policy cache (FEAT-002) ─────────────────────────────────────
+    builder.Services.AddMemoryCache();
+    builder.Services.AddSingleton<PasswordPolicyCache>();
+
     // ─── Rate limiting (built-in .NET 7+ API, no third-party dependency) ──────────
     // Policy name used by the [EnableRateLimiting] attribute on PasswordController.
     const string PasswordRateLimitPolicy = "password-fixed-window";

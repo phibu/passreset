@@ -12,11 +12,13 @@ import AutorenewIcon from '@mui/icons-material/Autorenew';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import { changePassword } from '../api/client';
+import { usePolicy } from '../hooks/usePolicy';
 import { useRecaptcha } from '../hooks/useRecaptcha';
 import type { ClientSettings, ApiErrorItem } from '../types/settings';
 import { ApiErrorCode } from '../types/settings';
 import { levenshtein } from '../utils/levenshtein';
 import { generatePassword } from '../utils/passwordGenerator';
+import AdPasswordPolicyPanel from './AdPasswordPolicyPanel';
 import { PasswordStrengthMeter } from './PasswordStrengthMeter';
 
 interface Props {
@@ -85,6 +87,11 @@ export function PasswordForm({ settings, onSuccess }: Props) {
   const [currentPassword, setCurrentPassword]   = useState('');
   const [newPassword, setNewPassword]           = useState('');
   const [newPasswordVerify, setNewPasswordVerify] = useState('');
+
+  // FEAT-002: fetch effective AD password policy when the operator opts in.
+  const { policy: adPolicy, loading: adPolicyLoading } = usePolicy(
+    settings.showAdPasswordPolicy === true
+  );
 
   const [showCurrent, setShowCurrent]           = useState(false);
   const [showNew, setShowNew]                   = useState(false);
@@ -241,6 +248,11 @@ export function PasswordForm({ settings, onSuccess }: Props) {
         InputProps={{ endAdornment: visibilityAdornment(showCurrent, () => setShowCurrent(v => !v)) }}
         sx={{ mb: 2 }}
       />
+
+      {/* AD password policy panel (FEAT-002) — fails closed when policy=null */}
+      {settings.showAdPasswordPolicy && (
+        <AdPasswordPolicyPanel policy={adPolicy} loading={adPolicyLoading} />
+      )}
 
       {/* New password */}
       <TextField

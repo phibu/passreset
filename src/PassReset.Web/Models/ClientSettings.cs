@@ -22,6 +22,13 @@ public class ClientSettings
     public string? ChangePasswordTitle { get; set; }
     public ValidationRegex? ValidationRegex { get; set; }
     public BrandingSettings? Branding { get; set; }
+
+    /// <summary>
+    /// FEAT-002. When true, the client fetches the effective AD password policy
+    /// via GET /api/password/policy and renders it above the new-password field.
+    /// Defaults to false to preserve v1.2.3 behavior.
+    /// </summary>
+    public bool ShowAdPasswordPolicy { get; set; } = false;
 }
 
 public sealed class BrandingSettings
