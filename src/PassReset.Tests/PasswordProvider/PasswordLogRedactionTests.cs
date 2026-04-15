@@ -22,6 +22,26 @@ namespace PassReset.Tests.PasswordProvider;
 /// appears in any rendered log message or structured property across the
 /// controller → lockout decorator → provider code path. Covers the information
 /// disclosure threat tracked as T-07-01.
+///
+/// <para>
+/// <b>Coverage gap (documented, accepted for phase 07):</b> these tests exercise
+/// the <c>FakeInvalidCredsProvider</c> stub and the end-to-end debug provider —
+/// they do NOT drive the real <c>PasswordChangeProvider</c> catch blocks at
+/// <c>ChangePasswordInternal</c> lines 485 / 505 / 515, <c>ValidateUserCredentials</c>
+/// line 345, <c>ClearMustChangeFlag</c> line 466, or <c>ValidateGroups</c> lines
+/// 377 / 386 that actually call <see cref="ExceptionChainLogger.LogExceptionChain"/>.
+/// Driving those paths requires either a live <c>UserPrincipal</c> (impossible
+/// without a domain controller) or refactoring <c>PasswordChangeProvider</c> to
+/// allow fault injection via a swappable AD abstraction — significant rework
+/// beyond phase 07 scope. The redaction safety of those sites rests on two
+/// facts: (a) none of the real catch-block templates pass <c>currentPassword</c>
+/// or <c>newPassword</c> as template arguments (verified by code review
+/// WR-01/WR-02 deep-review pass), and (b)
+/// <see cref="ExceptionChainLogger_CapturesInnerExceptionMessages_AcceptedRisk"/>
+/// directly exercises the helper those sites invoke. Any future redaction layer
+/// should hook <see cref="ExceptionChainLogger"/> centrally rather than relying
+/// on call-site discipline.
+/// </para>
 /// </summary>
 public sealed class PasswordLogRedactionTests
 {
@@ -82,7 +102,7 @@ public sealed class PasswordLogRedactionTests
     }
 
     [Fact]
-    public async Task DebugPasswordChangeProvider_DoesNotLogPlaintext()
+    public async Task FakeProvider_DoesNotLogPlaintext()
     {
         var (sink, seri) = BuildSink();
         using var factory = new SerilogLoggerFactory(seri, dispose: true);
@@ -95,7 +115,7 @@ public sealed class PasswordLogRedactionTests
     }
 
     [Fact]
-    public async Task LockoutPasswordChangeProvider_DoesNotLogPlaintext()
+    public async Task LockoutDecorator_DoesNotLogPlaintext_OverFakeInner()
     {
         var (sink, seri) = BuildSink();
         using var factory = new SerilogLoggerFactory(seri, dispose: true);
