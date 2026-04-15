@@ -1,13 +1,13 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0.0
-milestone_name: Platform evolution
+milestone: v1.3.1
+milestone_name: AD Diagnostics (patch)
 status: not_started
-last_updated: "2026-04-15T14:00:00.000Z"
+last_updated: "2026-04-15T14:30:00.000Z"
 progress:
-  total_phases: 3
+  total_phases: 1
   completed_phases: 0
-  total_plans: 0
+  total_plans: 1
   completed_plans: 0
   percent: 0
 ---
@@ -21,18 +21,18 @@ progress:
 - **Project:** PassReset (self-service AD password change portal)
 - **Core value:** Reliable, secure, self-service password change that fits corporate AD environments without bespoke deployment engineering
 - **Baseline version:** v1.2.2
-- **Current milestone:** v2.0.0 (Platform evolution)
-- **Milestone chain:** v1.2.3 ✅ → v1.3.0 ✅ → v2.0.0 (active)
-- **Current focus:** v2.0 kickoff — Phase 4 (Multi-OS PoC) not started
+- **Current milestone:** v1.3.1 (AD Diagnostics patch)
+- **Milestone chain:** v1.2.3 ✅ → v1.3.0 ✅ → v1.3.1 (active) → v2.0.0
+- **Current focus:** Phase 07 (AD Diagnostics) — promoted from backlog 999.1
 
 ## Current Position
 
-Milestone: v2.0.0 — NOT STARTED
-Next: Phase 04 (v2.0 Multi-OS PoC) — needs `/gsd-discuss-phase 4` then `/gsd-plan-phase 4`
+Milestone: v1.3.1 — NOT STARTED
+Next: Phase 07 (v1.3.1 AD Diagnostics) — needs `/gsd-discuss-phase 7` then `/gsd-plan-phase 7`
 
-- **Phase:** none active
-- **Next:** Kick off Phase 04 (Multi-OS PoC) via `/gsd-discuss-phase 4` or `/gsd-new-milestone` for a full refresh
-- **Status:** v1.2.3 and v1.3.0 archived to `milestones/`; v2.0 requirements (V2-001..003) mapped to phases 4/5/6
+- **Phase:** 07 active
+- **Next:** `/gsd-discuss-phase 7` to shape the diagnostic logging plan
+- **Status:** BUG-004 mapped; Phase 07 dir created at `.planning/phases/07-v1-3-1-ad-diagnostics/`
 - **Progress:** [░░░░░░░░░░] 0%
 
 ## Milestone Map
@@ -41,7 +41,8 @@ Next: Phase 04 (v2.0 Multi-OS PoC) — needs `/gsd-discuss-phase 4` then `/gsd-p
 |---|---|---|
 | v1.2.3 | 01 | ✅ Shipped 2026-04-14 (archived) |
 | v1.3.0 | 02, 03 | ✅ Shipped 2026-04-15 (archived) |
-| v2.0.0 | 04, 05, 06 | Active — 0/3 phases started |
+| v1.3.1 | 07 | Active — 0/1 plans |
+| v2.0.0 | 04, 05, 06 | Queued — 0/3 phases started |
 
 ## Performance Metrics
 
@@ -62,10 +63,10 @@ Next: Phase 04 (v2.0 Multi-OS PoC) — needs `/gsd-discuss-phase 4` then `/gsd-p
 
 ### Active TODOs
 
-- Triage 6 stale Dependabot branches on origin (eslint, eslint-plugin-react-hooks, actions/checkout, setup-dotnet, setup-node, chore/frontend-majors) — some may already be merged into v1.3.0
-- Archive phase directories via `/gsd-cleanup` (moves `.planning/phases/01..03` to `.planning/archive/`)
-- Start Phase 04 via `/gsd-discuss-phase 4` (or `/gsd-new-milestone` for a full restart with fresh requirements conversation)
-- Promote backlog item 999.1 when scope-appropriate (likely alongside Phase 4 diagnostics)
+- `/gsd-discuss-phase 7` — shape the AD diagnostic logging approach
+- `/gsd-plan-phase 7` — produce 07-01-PLAN.md (single cohesive logging refactor)
+- Execute → verify → ship v1.3.1 patch release
+- After v1.3.1 ships: pivot to v2.0 Phase 04 (Multi-OS PoC)
 
 ### Blockers
 
