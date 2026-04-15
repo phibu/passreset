@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.3.0
-milestone_name: Test Foundation + UX Features
-status: in_progress
-last_updated: "2026-04-15T13:30:00.000Z"
+milestone: v2.0.0
+milestone_name: Platform evolution
+status: not_started
+last_updated: "2026-04-15T14:00:00.000Z"
 progress:
-  total_phases: 2
-  completed_phases: 2
-  total_plans: 9
-  completed_plans: 9
-  percent: 100
+  total_phases: 3
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # PassReset — Project State
@@ -21,34 +21,34 @@ progress:
 - **Project:** PassReset (self-service AD password change portal)
 - **Core value:** Reliable, secure, self-service password change that fits corporate AD environments without bespoke deployment engineering
 - **Baseline version:** v1.2.2
-- **Current milestone:** v1.3.0 (Test Foundation + UX Features)
-- **Milestone chain:** v1.2.3 ✅ → v1.3.0 (active) → v2.0.0
-- **Current focus:** v1.3.0 ready to ship — phases 02 and 03 complete, human UAT pending
+- **Current milestone:** v2.0.0 (Platform evolution)
+- **Milestone chain:** v1.2.3 ✅ → v1.3.0 ✅ → v2.0.0 (active)
+- **Current focus:** v2.0 kickoff — Phase 4 (Multi-OS PoC) not started
 
 ## Current Position
 
-Phase: 03 (v1-3-ux-features) — ✅ COMPLETE (verified PASS)
-Milestone v1.3.0: ready for release after human UAT
+Milestone: v2.0.0 — NOT STARTED
+Next: Phase 04 (v2.0 Multi-OS PoC) — needs `/gsd-discuss-phase 4` then `/gsd-plan-phase 4`
 
-- **Phase:** 03 complete
-- **Next:** Human UAT (4 items in 03-VERIFICATION.md frontmatter), then `/gsd-ship` for v1.3.0
-- **Status:** All 4 plans complete + VERIFICATION.md written
-- **Progress:** [██████████] 100%
+- **Phase:** none active
+- **Next:** Kick off Phase 04 (Multi-OS PoC) via `/gsd-discuss-phase 4` or `/gsd-new-milestone` for a full refresh
+- **Status:** v1.2.3 and v1.3.0 archived to `milestones/`; v2.0 requirements (V2-001..003) mapped to phases 4/5/6
+- **Progress:** [░░░░░░░░░░] 0%
 
 ## Milestone Map
 
 | Milestone | Phases | Status |
 |---|---|---|
-| v1.2.3 | 01 | ✅ Complete (shipped) |
-| v1.3.0 | 02, 03 | ✅ Complete (pending UAT + ship) |
-| v2.0.0 | 04, 05, 06 | Pending |
+| v1.2.3 | 01 | ✅ Shipped 2026-04-14 (archived) |
+| v1.3.0 | 02, 03 | ✅ Shipped 2026-04-15 (archived) |
+| v2.0.0 | 04, 05, 06 | Active — 0/3 phases started |
 
 ## Performance Metrics
 
 - Phases complete: 3/6 (01, 02, 03)
-- Plans complete: 9/9 in active milestones (01: 3/3, 02: 5/5, 03: 4/4)
-- Requirements delivered: FEAT-001, FEAT-002, FEAT-003, FEAT-004, QA-001
-- Releases shipped (this chain): 1/3 (v1.2.3)
+- Plans complete in shipped milestones: 12/12 (01: 3/3, 02: 5/5, 03: 4/4)
+- Requirements delivered: BUG-001..003, QA-001, FEAT-001..004 (8/11 from the 3-milestone chain)
+- Releases shipped: 2/3 (v1.2.3, v1.3.0)
 
 ## Accumulated Context
 
@@ -62,9 +62,10 @@ Milestone v1.3.0: ready for release after human UAT
 
 ### Active TODOs
 
-- Review + merge PR #17 (https://github.com/phibu/AD-Passreset-Portal/pull/17) once CI green
-- Tag `v1.3.0` after merge → release.yml builds and publishes the zip
-- Promote backlog item 999.1 after v1.3.0 ships
+- Triage 6 stale Dependabot branches on origin (eslint, eslint-plugin-react-hooks, actions/checkout, setup-dotnet, setup-node, chore/frontend-majors) — some may already be merged into v1.3.0
+- Archive phase directories via `/gsd-cleanup` (moves `.planning/phases/01..03` to `.planning/archive/`)
+- Start Phase 04 via `/gsd-discuss-phase 4` (or `/gsd-new-milestone` for a full restart with fresh requirements conversation)
+- Promote backlog item 999.1 when scope-appropriate (likely alongside Phase 4 diagnostics)
 
 ### Blockers
 
@@ -78,6 +79,6 @@ Milestone v1.3.0: ready for release after human UAT
 
 ## Session Continuity
 
-- **Previous session:** Phase 03-02 backend commit (fbdeb02) — session ended before client wiring
-- **This session (2026-04-15):** Forensic recovery + phase 03 completion. Commits: 321948e (01 docs), 133a2a4 (03-02 client), a0db559 (03-02 SUMMARY + forensics), 791cbdb + ec96345 + 89b13eb (03-03), 3955093 + c4e601d + 445a4a1 (03-04), 40b2cb1 (03 VERIFICATION). Phase 03 verified PASS.
-- **Next session:** Human UAT for the 4 items in 03-VERIFICATION.md, then `/gsd-ship` to cut v1.3.0
+- **Previous session (2026-04-15 AM):** Forensic recovery + phase 03 completion (phases 02/03 shipped, PR #17 merged, tag v1.3.0 pushed, release.yml published `PassReset-v1.3.0.zip`).
+- **This session (2026-04-15 PM):** Closed v1.2.3 and v1.3.0 milestones — archives at `milestones/v1.2.3-ROADMAP.md`, `v1.2.3-REQUIREMENTS.md`, `v1.3.0-ROADMAP.md`, `v1.3.0-REQUIREMENTS.md`. ROADMAP.md collapsed to active v2.0 phases. REQUIREMENTS.md scoped to V2-001..003. STATE.md rolled to v2.0.0.
+- **Next session:** Triage Dependabot branches → `/gsd-cleanup` phase dirs → `/gsd-discuss-phase 4` (or `/gsd-new-milestone` for a fuller context refresh).
