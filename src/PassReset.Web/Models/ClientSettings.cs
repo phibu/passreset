@@ -21,6 +21,19 @@ public class ClientSettings
     public string? ApplicationTitle { get; set; }
     public string? ChangePasswordTitle { get; set; }
     public ValidationRegex? ValidationRegex { get; set; }
+    public BrandingSettings? Branding { get; set; }
+}
+
+public sealed class BrandingSettings
+{
+    public string? CompanyName { get; set; }
+    public string? PortalName { get; set; }
+    public string? HelpdeskUrl { get; set; }
+    public string? HelpdeskEmail { get; set; }
+    public string? UsageText { get; set; }
+    public string? LogoFileName { get; set; }
+    public string? FaviconFileName { get; set; }
+    public string? AssetRoot { get; set; }
 }
 
 public class Recaptcha

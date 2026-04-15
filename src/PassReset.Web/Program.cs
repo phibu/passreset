@@ -1,5 +1,6 @@
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
 using PassReset.Common;
 using PassReset.PasswordProvider;
@@ -206,6 +207,20 @@ try
     // ─── Static files and routing ─────────────────────────────────────────────────
     app.UseDefaultFiles();
     app.UseStaticFiles();
+
+    // ─── Operator branding assets (FEAT-001) ─────────────────────────────────────
+    // Served from C:\ProgramData\PassReset\brand\ by default — upgrade-safe path
+    // owned by the operator, not by the app deploy directory.
+    var brandRoot = clientSettings.Branding?.AssetRoot
+        ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                        "PassReset", "brand");
+    Directory.CreateDirectory(brandRoot);
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(brandRoot),
+        RequestPath = "/brand",
+        ServeUnknownFileTypes = false,
+    });
 
     app.UseRouting();
 

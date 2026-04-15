@@ -349,6 +349,45 @@ Server error and success messages returned from the API. All keys are optional; 
 
 ---
 
+### Branding (FEAT-001)
+
+Operator branding overrides the default header (lock icon + "PassReset"), favicon, and helpdesk
+hints. **Omitting the entire `Branding` block preserves the v1.2.3 default look.**
+
+Asset files (logo, favicon) live outside the deploy directory so upgrades never overwrite them.
+Default location: `C:\ProgramData\PassReset\brand\` (created by `Install-PassReset.ps1`).
+The installer never removes or overwrites this directory on upgrade.
+
+```json
+"ClientSettings": {
+  "Branding": {
+    "CompanyName": "Contoso Ltd.",
+    "PortalName": "Account Self-Service",
+    "HelpdeskUrl": "https://helpdesk.contoso.com",
+    "HelpdeskEmail": "helpdesk@contoso.com",
+    "UsageText": "Use your corporate username and current password to choose a new password.",
+    "LogoFileName": "contoso-logo.svg",
+    "FaviconFileName": "favicon.ico",
+    "AssetRoot": null
+  }
+}
+```
+
+| Key | Purpose |
+|-----|---------|
+| `CompanyName` | Displayed alongside the portal name in the header (optional). |
+| `PortalName` | Header text. Defaults to `PassReset` when omitted. |
+| `HelpdeskUrl` | Renders as a `target="_blank" rel="noopener"` link in the helpdesk block. |
+| `HelpdeskEmail` | Renders as a `mailto:` link in the helpdesk block. |
+| `UsageText` | Short paragraph rendered above the form. Replaces the default help text when set. |
+| `LogoFileName` | File name (not full path) inside the brand asset root, served as `/brand/<file>`. Falls back to the default lock icon if the file fails to load. |
+| `FaviconFileName` | File name inside the brand asset root, injected at runtime as `<link rel="icon">`. |
+| `AssetRoot` | Override for the brand asset directory. Default: `C:\ProgramData\PassReset\brand\`. Use only when you need to host assets on a UNC path or alternate drive. |
+
+The helpdesk block is hidden when both `HelpdeskUrl` and `HelpdeskEmail` are absent.
+
+---
+
 ## SiemSettings
 
 Forwards security events to a SIEM via RFC 5424 syslog and/or email alerts. Both channels are opt-in; all keys are optional.
