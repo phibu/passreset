@@ -3,8 +3,8 @@ phase: 07-v1-3-1-ad-diagnostics
 fixed_at: 2026-04-15T00:00:00Z
 review_path: .planning/milestones/v1.3.1-phases/07-v1-3-1-ad-diagnostics/07-REVIEW.md
 iteration: 1
-findings_in_scope: 3
-fixed: 3
+findings_in_scope: 2
+fixed: 2
 skipped: 0
 status: all_fixed
 ---
@@ -16,32 +16,32 @@ status: all_fixed
 **Iteration:** 1
 
 **Summary:**
-- Findings in scope (Critical + Warning): 3
-- Fixed: 3
+- Findings in scope: 2 (Warning only — Info findings deferred)
+- Fixed: 2
 - Skipped: 0
-
-Build: `dotnet build src/PassReset.sln --configuration Release` — succeeded (0 errors, 10 pre-existing xUnit1051 warnings).
-Tests: `dotnet test` — 81/81 passed.
 
 ## Fixed Issues
 
-### WR-01: Message template arity mismatch in ChangePassword COM error log
+### WR-01: ExceptionChainLogger has no cycle protection or depth bound
 
-**Files modified:** `src/PassReset.PasswordProvider/PasswordChangeProvider.cs`
-**Commit:** f7d4fbe
-**Applied fix:** Split the message template to include four named holes (`{HResult}`, `{Status}`, `{UseAutomaticContext}`, `{AllowSetPasswordFallback}`) matching the four positional arguments. Reformatted args one-per-line for readability. Replaced ambiguous `{Auto}` / `{Allow}` with the full, structured-sink-friendly property names as suggested by the reviewer.
+**Files modified:** `src/PassReset.PasswordProvider/ExceptionChainLogger.cs`
+**Commit:** f9c50ae
+**Applied fix:** Replaced the unbounded `for` walker with a `while` loop that (a) caps traversal at `MaxDepth = 32` frames, (b) uses a `HashSet<Exception>` with `ReferenceEqualityComparer.Instance` to detect cycles, and (c) appends an `ExceptionChainSentinel` frame to the emitted chain whenever either bound is hit so log evidence records the truncation/cycle reason. Preserved lowercase anonymous-type member names (`depth`/`type`/`hresult`/`message`) to keep existing `ExceptionChainLoggerTests` assertions green — IN-03 schema-casing remains open as a separate Info finding.
 
-### WR-02: Redaction tests do not exercise real PasswordChangeProvider log paths
+### WR-02: Redaction tests do not exercise the real provider catch paths
 
 **Files modified:** `src/PassReset.Tests/PasswordProvider/PasswordLogRedactionTests.cs`
-**Commit:** 2657152
-**Applied fix:** Added a new `ExceptionChainLogger_CapturesInnerExceptionMessages_AcceptedRisk` fact that builds a 3-level inner-exception chain whose messages carry both sentinels, invokes `ExceptionChainLogger.LogExceptionChain` directly, and asserts the sentinels DO appear in captured properties. XML doc on the test explicitly documents AD-supplied exception messages as the single accepted-risk leakage channel and names `ExceptionChainLogger` as the required future-redaction hook point. Mocking a real `PrincipalContext` is impractical (Windows-only, sealed types), so we adopted the reviewer's alternative proposal.
+**Commit:** 12b036c
+**Applied fix:** Adopted the "document the gap and rename misleading tests" branch of the reviewer's fix guidance. Driving the real `PasswordChangeProvider.ChangePasswordInternal` COMException paths requires either a live `UserPrincipal` or refactoring the provider to accept a swappable AD abstraction — out of scope for phase 07. Instead:
+1. Renamed `DebugPasswordChangeProvider_DoesNotLogPlaintext` → `FakeProvider_DoesNotLogPlaintext` to accurately reflect that the test drives `FakeInvalidCredsProvider`, not the real debug provider.
+2. Renamed `LockoutPasswordChangeProvider_DoesNotLogPlaintext` → `LockoutDecorator_DoesNotLogPlaintext_OverFakeInner` to clarify the decorator-over-fake scope.
+3. Added a class-level XML doc comment explicitly documenting the coverage gap, enumerating the uncovered real-provider catch sites (lines 485 / 505 / 515 / 345 / 466 / 377 / 386), and noting that redaction safety of those sites rests on (a) none of the real templates passing plaintext passwords as template args (verified by code review) and (b) the existing `ExceptionChainLogger_CapturesInnerExceptionMessages_AcceptedRisk` test that directly exercises the helper those sites invoke.
 
-### WR-03: Redundant Debug + Warning log for every lockout failure increment
+**Verification:** Full solution rebuild succeeded (0 errors, pre-existing xUnit1051 warnings only). Full xUnit suite (`dotnet test src/PassReset.sln --configuration Release`) executed 81 tests, all passed.
 
-**Files modified:** `src/PassReset.PasswordProvider/LockoutPasswordChangeProvider.cs`
-**Commit:** f7296c4
-**Applied fix:** Removed the `LogDebug("lockout counter {Count}/{Threshold} for {Username}")` call that duplicated the `LogWarning` emission on the same hot path. Kept the `LogWarning` because SIEM / operator visibility of portal-failure counters is the intended behaviour per CONTEXT.md.
+## Skipped Issues
+
+None.
 
 ---
 
