@@ -16,14 +16,17 @@ public sealed class PasswordChangeProvider : IPasswordChangeProvider
 {
     private readonly PasswordChangeOptions _options;
     private readonly ILogger<PasswordChangeProvider> _logger;
+    private readonly PwnedPasswordChecker _pwnedChecker;
     private IdentityType _idType = IdentityType.UserPrincipalName;
 
     public PasswordChangeProvider(
         ILogger<PasswordChangeProvider> logger,
-        IOptions<PasswordChangeOptions> options)
+        IOptions<PasswordChangeOptions> options,
+        PwnedPasswordChecker pwnedChecker)
     {
         _logger  = logger;
         _options = options.Value;
+        _pwnedChecker = pwnedChecker;
         SetIdType();
     }
 
@@ -50,7 +53,7 @@ public sealed class PasswordChangeProvider : IPasswordChangeProvider
             }
 
             // Reject passwords found in public breach databases (async — does not block a thread pool thread)
-            var pwnedResult = await PwnedPasswordChecker.IsPwnedPasswordAsync(newPassword).ConfigureAwait(false);
+            var pwnedResult = await _pwnedChecker.IsPwnedPasswordAsync(newPassword).ConfigureAwait(false);
             if (pwnedResult == true)
             {
                 _logger.LogError("New password for {Username} is publicly known (HaveIBeenPwned)", username);

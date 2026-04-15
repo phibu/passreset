@@ -44,6 +44,13 @@ try
         builder.Configuration.GetSection(nameof(PasswordChangeOptions)));
     builder.Services.AddSingleton<IValidateOptions<PasswordChangeOptions>, PasswordChangeOptionsValidator>();
 
+    // ─── PwnedPasswordChecker — HttpClient injected via IHttpClientFactory ─────
+    builder.Services.AddHttpClient<PwnedPasswordChecker>(c =>
+    {
+        c.BaseAddress = new Uri("https://api.pwnedpasswords.com/");
+        c.Timeout = TimeSpan.FromSeconds(5);
+    });
+
     // ─── Provider registration (runtime config flag, no compile-time conditionals) ─
     var webSettings = builder.Configuration
         .GetSection(nameof(WebSettings))

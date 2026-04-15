@@ -1,33 +1,37 @@
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Logging;
 
 namespace PassReset.PasswordProvider;
 
 /// <summary>
 /// Checks a password against the HaveIBeenPwned k-anonymity API.
-/// Uses a static HttpClient (recommended pattern) and the synchronous Send() API
-/// so it can be called from the synchronous IPasswordChangeProvider interface.
+/// Instance-based class wired through <see cref="IHttpClientFactory"/> so the underlying
+/// <see cref="HttpMessageHandler"/> can be substituted in tests.
 /// See https://haveibeenpwned.com/API/v2#PwnedPasswords
 /// </summary>
-internal static class PwnedPasswordChecker
+public sealed class PwnedPasswordChecker
 {
-    // Static HttpClient avoids socket exhaustion on repeated calls.
-    // PooledConnectionLifetime ensures DNS changes are respected without restarting the process.
-    private static readonly HttpClient _http = new(new SocketsHttpHandler
+    private readonly HttpClient _http;
+    private readonly ILogger<PwnedPasswordChecker>? _logger;
+
+    /// <summary>
+    /// Creates a new checker using the injected <see cref="HttpClient"/>.
+    /// Callers must configure a reasonable BaseAddress / Timeout on the underlying client.
+    /// </summary>
+    public PwnedPasswordChecker(HttpClient http, ILogger<PwnedPasswordChecker>? logger = null)
     {
-        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
-    })
-    {
-        Timeout = TimeSpan.FromSeconds(5),
-    };
+        _http = http;
+        _logger = logger;
+    }
 
     /// <summary>
     /// Checks whether the password appears in the HaveIBeenPwned database.
     /// Returns <see langword="true"/> if confirmed pwned, <see langword="false"/> if confirmed clean,
     /// or <see langword="null"/> if the API was unreachable so the caller can surface a distinct error.
     /// </summary>
-    internal static async Task<bool?> IsPwnedPasswordAsync(string plaintext)
+    public async Task<bool?> IsPwnedPasswordAsync(string plaintext)
     {
         try
         {
@@ -36,22 +40,30 @@ internal static class PwnedPasswordChecker
             var suffix = hash[5..];
 
             using var response = await _http.GetAsync(
-                $"https://api.pwnedpasswords.com/range/{prefix}").ConfigureAwait(false);
+                $"range/{prefix}").ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger?.LogWarning("HaveIBeenPwned API returned {StatusCode}", response.StatusCode);
+                return null;
+            }
+
             var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
 
             foreach (var line in body.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
                 var colon = line.IndexOf(':');
-                if (colon > 0 && line[..colon].Equals(suffix, StringComparison.OrdinalIgnoreCase))
+                if (colon > 0 && line[..colon].Trim().Equals(suffix, StringComparison.OrdinalIgnoreCase))
                     return true;
             }
 
             return false;
         }
-        catch
+        catch (Exception ex)
         {
             // API unreachable — return null so the caller can surface a distinct error
             // rather than silently blocking the password change.
+            _logger?.LogWarning(ex, "HaveIBeenPwned API call failed");
             return null;
         }
     }
