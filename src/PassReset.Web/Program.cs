@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using PassReset.Common;
 using PassReset.PasswordProvider;
 using PassReset.Web.Helpers;
+using PassReset.Web.Middleware;
 using PassReset.Web.Models;
 using PassReset.Web.Services;
 using Serilog;
@@ -199,6 +200,10 @@ try
 
     // ─── Request logging — one structured line per HTTP request ───────────────────
     app.UseSerilogRequestLogging();
+
+    // ─── TraceId / SpanId enrichment — pushes W3C Activity identifiers onto
+    //     Serilog's LogContext so every downstream log event correlates per request.
+    app.UseMiddleware<TraceIdEnricherMiddleware>();
 
     // ─── Security headers — applied to every response before any other middleware ─
     app.Use(async (context, next) =>
