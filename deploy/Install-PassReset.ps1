@@ -183,6 +183,16 @@ if (-not (Test-Path $PhysicalPath)) {
     Write-Ok "Created $PhysicalPath"
 }
 
+# BRAND DIR — upgrade-safe, never remove on upgrade per FEAT-001 / D-Branding.
+# Owned by the operator: contains logo, favicon, and other assets served via /brand/*.
+$brandPath = Join-Path $env:ProgramData 'PassReset\brand'
+if (-not (Test-Path $brandPath)) {
+    New-Item -ItemType Directory -Path $brandPath -Force | Out-Null
+    Write-Ok "Created brand directory $brandPath"
+} else {
+    Write-Ok "Preserving existing brand directory $brandPath"
+}
+
 # Stop the site/pool before copying so locked files are released
 Import-Module WebAdministration -ErrorAction SilentlyContinue
 

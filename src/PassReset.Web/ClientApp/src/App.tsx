@@ -7,11 +7,12 @@ import CardContent from '@mui/material/CardContent';
 import Container from '@mui/material/Container';
 import CssBaseline from '@mui/material/CssBaseline';
 import Skeleton from '@mui/material/Skeleton';
+import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
-import LockPersonIcon from '@mui/icons-material/LockPerson';
 
+import BrandHeader from './components/BrandHeader';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PasswordForm } from './components/PasswordForm';
 import { useSettings } from './hooks/useSettings';
@@ -78,6 +79,25 @@ export default function App() {
     }
   }, [settings?.applicationTitle]);
 
+  // Inject favicon at runtime when Branding.FaviconFileName is set.
+  useEffect(() => {
+    const favicon = settings?.branding?.faviconFileName;
+    if (!favicon) return;
+    const href = `/brand/${favicon}`;
+    let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'icon';
+      document.head.appendChild(link);
+    }
+    link.href = href;
+  }, [settings?.branding?.faviconFileName]);
+
+  const branding = settings?.branding;
+  const helpdeskUrl = branding?.helpdeskUrl;
+  const helpdeskEmail = branding?.helpdeskEmail;
+  const showHelpdesk = Boolean(helpdeskUrl || helpdeskEmail);
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -94,18 +114,8 @@ export default function App() {
           gap: 3,
         }}
       >
-        {/* Product name header */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <LockPersonIcon sx={{ fontSize: 28, color: 'primary.main' }} />
-          <Typography
-            variant="h6"
-            fontWeight={700}
-            letterSpacing={0.5}
-            sx={{ color: 'primary.main', lineHeight: 1 }}
-          >
-            PassReset
-          </Typography>
-        </Box>
+        {/* Product name header (FEAT-001 — branded) */}
+        <BrandHeader branding={branding} />
 
         <Container disableGutters sx={{ maxWidth: 440, width: '100%', px: { xs: 2, sm: 0 } }}>
           <Card>
@@ -115,6 +125,13 @@ export default function App() {
               <Typography variant="h5" fontWeight={600} gutterBottom>
                 {settings?.changePasswordTitle ?? 'Change Account Password'}
               </Typography>
+
+              {/* Operator usage text (FEAT-001) — replaces default helper when set */}
+              {branding?.usageText && (
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  {branding.usageText}
+                </Typography>
+              )}
 
               {/* Loading skeleton — preserves layout to minimise CLS */}
               {loading && (
@@ -166,9 +183,34 @@ export default function App() {
           </Card>
         </Container>
 
+        {/* Helpdesk block (FEAT-001) — hidden when both URL and email absent */}
+        {showHelpdesk && (
+          <Stack direction="row" spacing={2} sx={{ color: 'text.secondary' }}>
+            {helpdeskUrl && (
+              <Typography variant="caption">
+                <a
+                  href={helpdeskUrl}
+                  target="_blank"
+                  rel="noopener"
+                  style={{ color: 'inherit' }}
+                >
+                  Helpdesk
+                </a>
+              </Typography>
+            )}
+            {helpdeskEmail && (
+              <Typography variant="caption">
+                <a href={`mailto:${helpdeskEmail}`} style={{ color: 'inherit' }}>
+                  {helpdeskEmail}
+                </a>
+              </Typography>
+            )}
+          </Stack>
+        )}
+
         {/* Footer */}
         <Typography variant="caption" sx={{ color: 'text.disabled' }}>
-          &copy; {new Date().getFullYear()} — Internal IT Tool
+          &copy; {new Date().getFullYear()} — {branding?.companyName ?? 'Internal IT Tool'}
         </Typography>
       </Box>
       </ErrorBoundary>

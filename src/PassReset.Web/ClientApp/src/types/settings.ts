@@ -53,6 +53,17 @@ export interface Alerts {
   errorPasswordTooRecentlyChanged?: string;
 }
 
+export interface BrandingSettings {
+  companyName?: string;
+  portalName?: string;
+  helpdeskUrl?: string;
+  helpdeskEmail?: string;
+  usageText?: string;
+  logoFileName?: string;
+  faviconFileName?: string;
+  assetRoot?: string;
+}
+
 export interface ClientSettings {
   applicationTitle?: string;
   changePasswordTitle?: string;
@@ -68,6 +79,28 @@ export interface ClientSettings {
   errorsPasswordForm?: ErrorsPasswordForm;
   validationRegex?: ValidationRegex;
   alerts?: Alerts;
+  branding?: BrandingSettings;
+  showAdPasswordPolicy?: boolean;
+  clipboardClearSeconds?: number;
+  // FEAT-004: when true, the blur-triggered HIBP indicator stays silent if HIBP
+  // is unreachable (matches server-side PasswordChangeOptions.FailOpenOnPwnedCheckUnavailable).
+  failOpenOnPwnedCheckUnavailable?: boolean;
+}
+
+// FEAT-004: response shape from POST /api/password/pwned-check.
+// The server returns the raw HIBP range body (suffix:count lines) so the client
+// can perform the suffix match locally — server never learns which suffix matched.
+export interface PwnedCheckResponse {
+  suffixes: string;
+  unavailable: boolean;
+}
+
+export interface PolicyResponse {
+  minLength: number;
+  requiresComplexity: boolean;
+  historyLength: number;
+  minAgeDays: number;
+  maxAgeDays: number;
 }
 
 export interface ChangePasswordRequest {

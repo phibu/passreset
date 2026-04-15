@@ -73,14 +73,19 @@ internal sealed class SiemService : ISiemService, IDisposable
         {
             var syslog   = _settings.Syslog;
             var severity = SeverityMap.GetValueOrDefault(eventType, 5);
-            var priority = syslog.Facility * 8 + severity;
-            var ts       = DateTimeOffset.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
             var hostname = Dns.GetHostName();
-            var detailPart = detail != null ? $" detail=\"{EscapeSd(detail)}\"" : string.Empty;
 
-            // RFC 5424: <PRIVAL>VERSION TIMESTAMP HOSTNAME APP-NAME PROCID MSGID STRUCTURED-DATA
-            var message = $"<{priority}>1 {ts} {hostname} {syslog.AppName} - - - " +
-                          $"[PassReset@0 event=\"{eventType}\" user=\"{EscapeSd(username)}\" ip=\"{EscapeSd(ipAddress)}\"{detailPart}]";
+            // RFC 5424 formatting delegated to pure static helper (testable without sockets).
+            var message = SiemSyslogFormatter.Format(
+                timestampUtc: DateTimeOffset.UtcNow,
+                facility:     syslog.Facility,
+                severity:     severity,
+                hostname:     hostname,
+                appName:      syslog.AppName,
+                eventType:    eventType.ToString(),
+                username:     username,
+                ipAddress:    ipAddress,
+                detail:       detail);
 
             var bytes = Encoding.UTF8.GetBytes(message);
 
@@ -164,29 +169,4 @@ internal sealed class SiemService : ISiemService, IDisposable
         }
     }
 
-    // ─── Helpers ──────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Escapes RFC 5424 SD-PARAM special characters (backslash, double-quote, closing bracket)
-    /// and strips control characters (U+0000–U+001F, U+007F) to prevent syslog injection.
-    /// </summary>
-    private static string EscapeSd(string value)
-    {
-        var cleaned = StripControlChars(value);
-        return cleaned.Replace("\\", "\\\\", StringComparison.Ordinal)
-                      .Replace("\"", "\\\"", StringComparison.Ordinal)
-                      .Replace("]",  "\\]",  StringComparison.Ordinal);
-    }
-
-    private static string StripControlChars(string input) =>
-        string.Create(input.Length, input, static (span, src) =>
-        {
-            var pos = 0;
-            foreach (var ch in src)
-            {
-                if (ch >= '\x20' && ch != '\x7F')
-                    span[pos++] = ch;
-            }
-            span[pos..].Fill('\0');
-        }).TrimEnd('\0');
 }

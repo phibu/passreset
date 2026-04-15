@@ -21,6 +21,31 @@ public class ClientSettings
     public string? ApplicationTitle { get; set; }
     public string? ChangePasswordTitle { get; set; }
     public ValidationRegex? ValidationRegex { get; set; }
+    public BrandingSettings? Branding { get; set; }
+
+    /// <summary>
+    /// FEAT-002. When true, the client fetches the effective AD password policy
+    /// via GET /api/password/policy and renders it above the new-password field.
+    /// Defaults to false to preserve v1.2.3 behavior.
+    /// </summary>
+    public bool ShowAdPasswordPolicy { get; set; } = false;
+
+    /// <summary>
+    /// Seconds after generator copy before clipboard is auto-cleared (only if content still matches). 0 disables. Default 30.
+    /// </summary>
+    public int ClipboardClearSeconds { get; set; } = 30;
+}
+
+public sealed class BrandingSettings
+{
+    public string? CompanyName { get; set; }
+    public string? PortalName { get; set; }
+    public string? HelpdeskUrl { get; set; }
+    public string? HelpdeskEmail { get; set; }
+    public string? UsageText { get; set; }
+    public string? LogoFileName { get; set; }
+    public string? FaviconFileName { get; set; }
+    public string? AssetRoot { get; set; }
 }
 
 public class Recaptcha

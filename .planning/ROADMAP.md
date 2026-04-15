@@ -44,7 +44,12 @@
   2. `npm test` (Vitest + RTL) runs in `ClientApp/` and covers components, hooks, and utilities (levenshtein, password generator)
   3. CI workflow fails the build when any test fails; coverage thresholds are declared and enforced
   4. Release workflow (`release.yml`) blocks tag-triggered publishes on test failure
-**Plans**: TBD
+**Plans**: 5 plans
+- [x] 02-01-PLAN.md — Backend test project scaffolding (xUnit v3, coverlet.msbuild, Program.cs partial)
+- [ ] 02-02-PLAN.md — Backend test suite + PwnedPasswordChecker/SiemSyslogFormatter refactors + 55/45 thresholds
+- [x] 02-03-PLAN.md — Frontend Vitest + RTL + jsdom infrastructure with 50/40 thresholds
+- [x] 02-04-PLAN.md — Frontend test suites (components, hook, utilities) meeting coverage thresholds
+- [ ] 02-05-PLAN.md — CI gate wiring (tests.yml, release.yml needs: tests, docs + CHANGELOG)
 
 ### Phase 3: v1.3 UX Features
 **Goal**: Operators can brand the portal and users get clearer guidance and safer password UX
@@ -135,4 +140,29 @@
 - Orphans: **0**
 
 ---
-*Last updated: 2026-04-14 (initial roadmap)*
+
+## Backlog
+
+### Phase 999.1: Diagnose E_ACCESSDENIED password change failures with structured logging (BACKLOG)
+
+**Goal:** [Captured for future planning] Diagnose intermittent `0x80070005 (E_ACCESSDENIED)` password change failures by adding structured logging around every step of the AD password change flow. External behavior unchanged — only internal diagnostics improved.
+
+**Requirements:** TBD
+
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+**Context captured:**
+- Files: `src/PassReset.PasswordProvider/PasswordChangeProvider.cs` (primary), `LockoutPasswordChangeProvider.cs`, `src/PassReset.Web/Controllers/PasswordController.cs`
+- Add exception chain logger (type, HResult, message, depth)
+- Step-before/after logging around user lookup, ChangePasswordInternal, Save()
+- Targeted catches: `PasswordException`, `PrincipalOperationException`, `DirectoryServicesCOMException`
+- Controller-level TraceId correlation via `HttpContext.TraceIdentifier`
+- AD context logging (domain, DC, identity type, UserCannotChangePassword, LastPasswordSet)
+- Lockout decorator state-transition logging
+- Constraints: no passwords/secrets logged, user-facing errors remain generic, no DB/audit dependencies
+
+---
+*Last updated: 2026-04-15 (added backlog 999.1)*

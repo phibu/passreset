@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -12,11 +12,17 @@ import AutorenewIcon from '@mui/icons-material/Autorenew';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import { changePassword } from '../api/client';
+import { usePolicy } from '../hooks/usePolicy';
 import { useRecaptcha } from '../hooks/useRecaptcha';
 import type { ClientSettings, ApiErrorItem } from '../types/settings';
 import { ApiErrorCode } from '../types/settings';
 import { levenshtein } from '../utils/levenshtein';
 import { generatePassword } from '../utils/passwordGenerator';
+import { scheduleClipboardClear, type ClipboardClearHandle } from '../utils/clipboardClear';
+import AdPasswordPolicyPanel from './AdPasswordPolicyPanel';
+import ClipboardCountdown from './ClipboardCountdown';
+import HibpIndicator from './HibpIndicator';
+import { useHibpCheck } from '../hooks/useHibpCheck';
 import { PasswordStrengthMeter } from './PasswordStrengthMeter';
 
 interface Props {
@@ -86,6 +92,11 @@ export function PasswordForm({ settings, onSuccess }: Props) {
   const [newPassword, setNewPassword]           = useState('');
   const [newPasswordVerify, setNewPasswordVerify] = useState('');
 
+  // FEAT-002: fetch effective AD password policy when the operator opts in.
+  const { policy: adPolicy, loading: adPolicyLoading } = usePolicy(
+    settings.showAdPasswordPolicy === true
+  );
+
   const [showCurrent, setShowCurrent]           = useState(false);
   const [showNew, setShowNew]                   = useState(false);
   const [showVerify, setShowVerify]             = useState(false);
@@ -94,9 +105,35 @@ export function PasswordForm({ settings, onSuccess }: Props) {
   const [submitting, setSubmitting]             = useState(false);
   const [approachingLockout, setApproachingLockout] = useState(false);
 
+  // FEAT-003: clipboard auto-clear lifecycle.
+  const [clipboardRemaining, setClipboardRemaining] = useState<number>(0);
+  const [clipboardState, setClipboardState]
+    = useState<'idle' | 'counting' | 'cleared' | 'cancelled'>('idle');
+  const clipboardHandleRef = useRef<ClipboardClearHandle | null>(null);
+  const clearedResetTimerRef = useRef<number | null>(null);
+
+  // Cancel any pending clipboard timer when the form unmounts.
+  useEffect(() => {
+    return () => {
+      clipboardHandleRef.current?.cancel();
+      if (clearedResetTimerRef.current !== null) {
+        window.clearTimeout(clearedResetTimerRef.current);
+      }
+    };
+  }, []);
+
   const { executeRecaptcha } = useRecaptcha(
     settings.recaptcha?.enabled ? settings.recaptcha.siteKey : undefined
   );
+
+  // FEAT-004: HIBP blur-triggered breach indicator. Debounced at 400ms,
+  // AbortController-cancelled on subsequent blurs. Plaintext never leaves the
+  // browser — only the 5-char SHA-1 prefix is POSTed to the server.
+  const { state: hibpState, count: hibpCount, check: hibpCheck } = useHibpCheck(400);
+  // Fail-open flag mirrors the server-side PasswordChangeOptions. Default TRUE
+  // (hide indicator on HIBP outage) unless operator explicitly sets it to false,
+  // in which case the warning Alert is rendered.
+  const hibpFailOpen = settings.failOpenOnPwnedCheckUnavailable !== false;
 
   function validate(): FormErrors {
     const errs: FormErrors = {};
@@ -146,6 +183,10 @@ export function PasswordForm({ settings, onSuccess }: Props) {
 
     setSubmitting(true);
     setApproachingLockout(false);
+    // Cancel any pending clipboard-clear timer — form submission supersedes it.
+    clipboardHandleRef.current?.cancel();
+    clipboardHandleRef.current = null;
+    setClipboardState('idle');
     try {
       const recaptchaToken = settings.recaptcha?.enabled && settings.recaptcha?.siteKey
         ? await executeRecaptcha()
@@ -184,12 +225,60 @@ export function PasswordForm({ settings, onSuccess }: Props) {
     }
   }
 
-  function handleGenerate() {
+  async function handleGenerate() {
     const pwd = generatePassword(settings.passwordEntropy || 16);
     setNewPassword(pwd);
     setNewPasswordVerify(pwd);
     setShowNew(true);
     setShowVerify(true);
+
+    // FEAT-003: copy to clipboard and schedule auto-clear.
+    // Cancel any prior timer first (regenerate case) so the old countdown
+    // does not race the new password's clear timer.
+    clipboardHandleRef.current?.cancel();
+    clipboardHandleRef.current = null;
+    if (clearedResetTimerRef.current !== null) {
+      window.clearTimeout(clearedResetTimerRef.current);
+      clearedResetTimerRef.current = null;
+    }
+
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(pwd);
+      } else {
+        // Clipboard API unavailable — skip scheduling entirely.
+        setClipboardState('idle');
+        return;
+      }
+    } catch {
+      // Write failed (permission denied, insecure context) — do not schedule.
+      setClipboardState('idle');
+      return;
+    }
+
+    const secs = settings.clipboardClearSeconds ?? 30;
+    if (secs > 0) {
+      setClipboardState('counting');
+      setClipboardRemaining(secs);
+      clipboardHandleRef.current = scheduleClipboardClear(
+        pwd,
+        secs,
+        (r) => setClipboardRemaining(r),
+        () => {
+          setClipboardState('cleared');
+          if (clearedResetTimerRef.current !== null) {
+            window.clearTimeout(clearedResetTimerRef.current);
+          }
+          clearedResetTimerRef.current = window.setTimeout(() => {
+            setClipboardState('idle');
+            clearedResetTimerRef.current = null;
+          }, 2000);
+        },
+        () => setClipboardState('cancelled'),
+      );
+    } else {
+      setClipboardState('idle');
+    }
   }
 
   const visibilityAdornment = (show: boolean, toggle: () => void) => (
@@ -242,6 +331,11 @@ export function PasswordForm({ settings, onSuccess }: Props) {
         sx={{ mb: 2 }}
       />
 
+      {/* AD password policy panel (FEAT-002) — fails closed when policy=null */}
+      {settings.showAdPasswordPolicy && (
+        <AdPasswordPolicyPanel policy={adPolicy} loading={adPolicyLoading} />
+      )}
+
       {/* New password */}
       <TextField
         fullWidth
@@ -252,6 +346,7 @@ export function PasswordForm({ settings, onSuccess }: Props) {
         type={showNew ? 'text' : 'password'}
         value={newPassword}
         onChange={e => setNewPassword(e.target.value)}
+        onBlur={e => hibpCheck(e.target.value)}
         autoComplete="new-password"
         inputProps={{ maxLength: 256 }}
         InputProps={{
@@ -272,6 +367,12 @@ export function PasswordForm({ settings, onSuccess }: Props) {
         }}
         sx={{ mb: settings.showPasswordMeter ? 0.5 : 2 }}
       />
+
+      {/* FEAT-004: HIBP breach indicator (blur-triggered, debounced, k-anonymity) */}
+      <HibpIndicator state={hibpState} count={hibpCount} failOpen={hibpFailOpen} />
+
+      {/* FEAT-003: clipboard auto-clear countdown / cleared chip */}
+      <ClipboardCountdown remaining={clipboardRemaining} state={clipboardState} />
 
       {settings.showPasswordMeter && (
         <Box sx={{ mb: 2 }}>

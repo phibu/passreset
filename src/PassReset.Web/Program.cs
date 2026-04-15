@@ -1,5 +1,6 @@
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
 using PassReset.Common;
 using PassReset.PasswordProvider;
@@ -43,6 +44,18 @@ try
     builder.Services.Configure<PasswordChangeOptions>(
         builder.Configuration.GetSection(nameof(PasswordChangeOptions)));
     builder.Services.AddSingleton<IValidateOptions<PasswordChangeOptions>, PasswordChangeOptionsValidator>();
+
+    // ─── PwnedPasswordChecker — HttpClient injected via IHttpClientFactory ─────
+    // Registered against both the concrete type (for PasswordChangeProvider's existing
+    // constructor dependency) and the IPwnedPasswordChecker interface (for the new
+    // pwned-check controller endpoint — FEAT-004).
+    builder.Services.AddHttpClient<PwnedPasswordChecker>(c =>
+    {
+        c.BaseAddress = new Uri("https://api.pwnedpasswords.com/");
+        c.Timeout = TimeSpan.FromSeconds(5);
+    });
+    builder.Services.AddTransient<IPwnedPasswordChecker>(sp =>
+        sp.GetRequiredService<PwnedPasswordChecker>());
 
     // ─── Provider registration (runtime config flag, no compile-time conditionals) ─
     var webSettings = builder.Configuration
@@ -130,9 +143,14 @@ try
     // ─── SIEM service ─────────────────────────────────────────────────────────────
     builder.Services.AddSingleton<ISiemService, SiemService>();
 
+    // ─── AD password-policy cache (FEAT-002) ─────────────────────────────────────
+    builder.Services.AddMemoryCache();
+    builder.Services.AddSingleton<PasswordPolicyCache>();
+
     // ─── Rate limiting (built-in .NET 7+ API, no third-party dependency) ──────────
-    // Policy name used by the [EnableRateLimiting] attribute on PasswordController.
+    // Policy names used by the [EnableRateLimiting] attributes on PasswordController.
     const string PasswordRateLimitPolicy = "password-fixed-window";
+    const string PwnedCheckRateLimitPolicy = "pwned-check-window";
 
     builder.Services.AddRateLimiter(options =>
     {
@@ -155,6 +173,21 @@ try
                     Window               = TimeSpan.FromMinutes(5),
                     QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                     QueueLimit           = 0,  // no queuing — reject immediately
+                }));
+
+        // FEAT-004: dedicated policy for the blur-triggered HIBP pre-check so a
+        // user typing several candidate passwords does not exhaust the submit-time
+        // 5-per-5-min budget. 20 per 5 min is enough for realistic exploration while
+        // still throttling abuse of the server-side HIBP proxy.
+        options.AddPolicy(PwnedCheckRateLimitPolicy, context =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit          = 20,
+                    Window               = TimeSpan.FromMinutes(5),
+                    QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                    QueueLimit           = 0,
                 }));
     });
 
@@ -200,6 +233,20 @@ try
     app.UseDefaultFiles();
     app.UseStaticFiles();
 
+    // ─── Operator branding assets (FEAT-001) ─────────────────────────────────────
+    // Served from C:\ProgramData\PassReset\brand\ by default — upgrade-safe path
+    // owned by the operator, not by the app deploy directory.
+    var brandRoot = clientSettings.Branding?.AssetRoot
+        ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                        "PassReset", "brand");
+    Directory.CreateDirectory(brandRoot);
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(brandRoot),
+        RequestPath = "/brand",
+        ServeUnknownFileTypes = false,
+    });
+
     app.UseRouting();
 
     // ─── Rate limiting — must come after UseRouting so endpoint metadata is resolved ─
@@ -222,3 +269,7 @@ finally
 {
     Log.CloseAndFlush();
 }
+
+// Marker type to allow WebApplicationFactory<Program> in test projects.
+// Top-level programs generate an internal Program class; this makes it public.
+public partial class Program { }
