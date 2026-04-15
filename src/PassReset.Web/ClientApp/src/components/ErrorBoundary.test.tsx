@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import type { JSX } from 'react';
 import { ErrorBoundary } from './ErrorBoundary';
 
 function Boom(): JSX.Element {

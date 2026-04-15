@@ -53,6 +53,17 @@ export interface Alerts {
   errorPasswordTooRecentlyChanged?: string;
 }
 
+export interface BrandingSettings {
+  companyName?: string;
+  portalName?: string;
+  helpdeskUrl?: string;
+  helpdeskEmail?: string;
+  usageText?: string;
+  logoFileName?: string;
+  faviconFileName?: string;
+  assetRoot?: string;
+}
+
 export interface ClientSettings {
   applicationTitle?: string;
   changePasswordTitle?: string;
@@ -68,6 +79,7 @@ export interface ClientSettings {
   errorsPasswordForm?: ErrorsPasswordForm;
   validationRegex?: ValidationRegex;
   alerts?: Alerts;
+  branding?: BrandingSettings;
 }
 
 export interface ChangePasswordRequest {
