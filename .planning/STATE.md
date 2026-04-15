@@ -1,14 +1,14 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2.3
-milestone_name: Hotfix
-status: completed
-last_updated: "2026-04-15T10:44:47.548Z"
+milestone: v1.3.0
+milestone_name: Test Foundation + UX Features
+status: in_progress
+last_updated: "2026-04-15T13:30:00.000Z"
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_phases: 2
+  completed_phases: 2
+  total_plans: 9
+  completed_plans: 9
   percent: 100
 ---
 
@@ -23,31 +23,31 @@ progress:
 - **Baseline version:** v1.2.2
 - **Current milestone:** v1.3.0 (Test Foundation + UX Features)
 - **Milestone chain:** v1.2.3 ✅ → v1.3.0 (active) → v2.0.0
-- **Current focus:** Phase 03 — v1-3-ux-features, plan 03-03 next
+- **Current focus:** v1.3.0 ready to ship — phases 02 and 03 complete, human UAT pending
 
 ## Current Position
 
-Phase: 03 (v1-3-ux-features) — EXECUTING
-Plan: 3 of 4 (next)
+Phase: 03 (v1-3-ux-features) — ✅ COMPLETE (verified PASS)
+Milestone v1.3.0: ready for release after human UAT
 
-- **Phase:** 03
-- **Plan:** 03-03 (next to start)
-- **Status:** Plans 03-01 and 03-02 complete; 03-03 and 03-04 pending
+- **Phase:** 03 complete
+- **Next:** Human UAT (4 items in 03-VERIFICATION.md frontmatter), then `/gsd-ship` for v1.3.0
+- **Status:** All 4 plans complete + VERIFICATION.md written
 - **Progress:** [██████████] 100%
 
 ## Milestone Map
 
 | Milestone | Phases | Status |
 |---|---|---|
-| v1.2.3 | 01 | ✅ Complete |
-| v1.3.0 | 02, 03 (parallel) | 02 ✅ / 03 in progress |
+| v1.2.3 | 01 | ✅ Complete (shipped) |
+| v1.3.0 | 02, 03 | ✅ Complete (pending UAT + ship) |
 | v2.0.0 | 04, 05, 06 | Pending |
 
 ## Performance Metrics
 
-- Phases complete: 2/6 (01, 02)
-- Plans complete: 7/9 in active milestones (01: 3/3, 02: 5/5, 03: 2/4)
-- Requirements delivered: FEAT-001, FEAT-002 (backend + client), QA-001
+- Phases complete: 3/6 (01, 02, 03)
+- Plans complete: 9/9 in active milestones (01: 3/3, 02: 5/5, 03: 4/4)
+- Requirements delivered: FEAT-001, FEAT-002, FEAT-003, FEAT-004, QA-001
 - Releases shipped (this chain): 1/3 (v1.2.3)
 
 ## Accumulated Context
@@ -62,10 +62,9 @@ Plan: 3 of 4 (next)
 
 ### Active TODOs
 
-- Execute plan 03-03 (next in phase 03)
-- Execute plan 03-04
-- Generate phase 03 VERIFICATION.md after 03-04 lands
-- Promote backlog item 999.1 after v1.3 ships
+- Human UAT for phase 03 (4 items listed in 03-VERIFICATION.md frontmatter: branding, AD RootDSE live query, clipboard permission, HIBP DevTools inspect)
+- Run `/gsd-ship` to prepare v1.3.0 release after UAT passes
+- Promote backlog item 999.1 after v1.3.0 ships
 
 ### Blockers
 
@@ -80,5 +79,5 @@ Plan: 3 of 4 (next)
 ## Session Continuity
 
 - **Previous session:** Phase 03-02 backend commit (fbdeb02) — session ended before client wiring
-- **This session (2026-04-15):** Forensic recovery — phase 01 docs committed (321948e), 03-02 client half committed (133a2a4), 03-02-SUMMARY.md written, STATE.md refreshed
-- **Next session:** Run `/gsd-execute-phase 03` to execute plans 03-03 and 03-04, then generate 03-VERIFICATION.md
+- **This session (2026-04-15):** Forensic recovery + phase 03 completion. Commits: 321948e (01 docs), 133a2a4 (03-02 client), a0db559 (03-02 SUMMARY + forensics), 791cbdb + ec96345 + 89b13eb (03-03), 3955093 + c4e601d + 445a4a1 (03-04), 40b2cb1 (03 VERIFICATION). Phase 03 verified PASS.
+- **Next session:** Human UAT for the 4 items in 03-VERIFICATION.md, then `/gsd-ship` to cut v1.3.0
