@@ -31,6 +31,13 @@ public static class ExceptionChainLogger
     /// <param name="exception">Top-level exception (non-null).</param>
     /// <param name="messageTemplate">Standard Serilog message template.</param>
     /// <param name="args">Template arguments.</param>
+    /// <summary>
+     /// Maximum inner-exception depth the walker will traverse. Guards against
+     /// pathologically deep or adversarial chains that could bloat log events
+     /// and stall the logging pipeline.
+     /// </summary>
+    internal const int MaxDepth = 32;
+
     public static void LogExceptionChain(
         ILogger logger,
         Exception exception,
@@ -38,15 +45,47 @@ public static class ExceptionChainLogger
         params object?[] args)
     {
         var chain = new List<object>();
+        var seen = new HashSet<Exception>(ReferenceEqualityComparer.Instance);
         var depth = 0;
-        for (var cur = exception; cur is not null; cur = cur.InnerException, depth++)
+        var cur = exception;
+        bool depthTruncated = false;
+        bool cycleDetected = false;
+
+        while (cur is not null)
         {
+            if (depth >= MaxDepth)
+            {
+                depthTruncated = true;
+                break;
+            }
+            if (!seen.Add(cur))
+            {
+                cycleDetected = true;
+                break;
+            }
+
             chain.Add(new
             {
                 depth,
                 type    = cur.GetType().Name,
                 hresult = $"0x{cur.HResult:X8}",
                 message = cur.Message,
+            });
+
+            cur = cur.InnerException;
+            depth++;
+        }
+
+        if (depthTruncated || cycleDetected)
+        {
+            chain.Add(new
+            {
+                depth,
+                type    = "ExceptionChainSentinel",
+                hresult = "0x00000000",
+                message = cycleDetected
+                    ? "inner-exception cycle detected; chain truncated"
+                    : $"max depth {MaxDepth} reached; chain truncated",
             });
         }
 
