@@ -63,7 +63,7 @@ Source: 21 GitHub issues (#19–#39) opened 2026-04-16. Must ship before v2.0 wo
   - [x] 08-01-PLAN.md — Strip template comments + create authoritative JSON Schema (STAB-007, STAB-008)
   - [x] 08-02-PLAN.md — CI Test-Json validation step (STAB-008 enforcement)
   - [x] 08-03-PLAN.md — IValidateOptions<T> validators + Program.cs ValidateOnStart + Event Log fail-fast (STAB-009)
-  - [ ] 08-04-PLAN.md — Installer pre-flight Test-Json + -ConfigSync param + Event Log source registration (STAB-009, STAB-011)
+  - [x] 08-04-PLAN.md — Installer pre-flight Test-Json + -ConfigSync param + Event Log source registration (STAB-009, STAB-011)
   - [ ] 08-05-PLAN.md — Installer additive-merge sync (schema-driven, arrays atomic, never modify existing) (STAB-010)
   - [ ] 08-06-PLAN.md — Installer schema-drift check rewritten (always runs on upgrade) (STAB-012)
   - [ ] 08-07-PLAN.md — Publish-PassReset.ps1 ships schema in release zip + pre-publish Test-Json (STAB-008)
