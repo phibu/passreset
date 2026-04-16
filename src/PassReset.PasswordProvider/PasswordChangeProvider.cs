@@ -666,7 +666,11 @@ public sealed class PasswordChangeProvider : IPasswordChangeProvider
             if (minAge <= TimeSpan.Zero) return null;
 
             using var ctx = AcquirePrincipalContext();
-            using var user = UserPrincipal.FindByIdentity(ctx, username);
+            // WR-03: reuse the FindUser fallback chain so the pre-check resolves
+            // the same user identities the main PerformPasswordChangeAsync path
+            // does (sam / UPN / mail per AllowedUsernameAttributes, plus
+            // DOMAIN\user and user@domain input forms).
+            using var user = FindUser(ctx, username);
             if (user == null) return null;
 
             var lastSet = user.LastPasswordSet;
