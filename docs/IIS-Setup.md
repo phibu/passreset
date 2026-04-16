@@ -11,10 +11,47 @@ Step-by-step instructions for deploying PassReset on **Windows Server 2019 / 202
 | Windows Server | 2019 / 2022 / 2025 | All editions supported |
 | IIS | 10 | Included with Windows Server |
 | .NET Hosting Bundle | 10.x | Installs ASP.NET Core Module for IIS |
+| **PowerShell 7+** | **7.0 or later** | **Required for `Install-PassReset.ps1` (Test-Json -SchemaFile). Windows PowerShell 5.1 is NOT supported.** |
 | Node.js | 20 LTS+ | Build machine only — not needed on server |
 | .NET SDK | 10.x | Build machine only |
 | SSL Certificate | Any trusted CA | Self-signed works for internal use |
 | Active Directory | Windows Server 2016+ domain | Domain-joined server recommended |
+
+### PowerShell 7 (required for Install-PassReset.ps1)
+
+`Install-PassReset.ps1` uses `Test-Json -SchemaFile` to pre-validate `appsettings.Production.json`
+against the shipped `appsettings.schema.json` on every upgrade. That parameter set is only
+available in **PowerShell 7+**. Windows PowerShell 5.1 is NOT supported.
+
+Install PowerShell 7 from the Microsoft Store, or via winget:
+
+```powershell
+winget install Microsoft.PowerShell
+```
+
+Always invoke the installer from `pwsh.exe`, not `powershell.exe`:
+
+```powershell
+pwsh -ExecutionPolicy Bypass -File .\Install-PassReset.ps1
+```
+
+Running under Windows PowerShell 5.1 fails immediately at the `#Requires -Version 7.0` line —
+no partial install is possible.
+
+### Windows Event Log source
+
+The installer registers Windows Event Log source `PassReset` (under the **Application** log)
+during the prerequisites phase via `[System.Diagnostics.EventLog]::CreateEventSource('PassReset', 'Application')`.
+This source is used by the ASP.NET Core host to surface startup configuration validation failures
+under **event ID 1001**.
+
+The registration is idempotent — re-running the installer on an already-configured host is a
+no-op. If registration fails (e.g. UAC interruption, non-admin elevation), startup validation
+still causes the host to throw, but the failure will not appear in Event Viewer. Re-run
+`Install-PassReset.ps1` from an elevated `pwsh` session to retry registration.
+
+To troubleshoot a 502 after upgrade or config edit, filter Event Viewer by source `PassReset`
+event ID 1001 — see [`appsettings-Production.md`](appsettings-Production.md#diagnosing-a-502-after-upgrade-or-config-edit).
 
 ---
 
@@ -196,14 +233,14 @@ Copy the `deploy\publish\` folder to the IIS server (or run the publish directly
 
 ## Step 6 — Run the Installer
 
-On the **IIS server**, run as **Administrator**:
+On the **IIS server**, run as **Administrator** from a **PowerShell 7+ (`pwsh`)** session:
 
 ```powershell
 # Minimal — ApplicationPoolIdentity, no HTTPS binding yet
-.\deploy\Install-PassReset.ps1
+pwsh -File .\deploy\Install-PassReset.ps1
 
 # Recommended — service account + certificate + secrets as env vars
-.\deploy\Install-PassReset.ps1 `
+pwsh -File .\deploy\Install-PassReset.ps1 `
     -SiteName        "PassReset" `
     -AppPoolName      "PassResetPool" `
     -PhysicalPath     "C:\inetpub\PassReset" `
