@@ -20,7 +20,26 @@ Step-by-step instructions for deploying PassReset on **Windows Server 2019 / 202
 
 ## Step 1 — Enable IIS
 
-### Via Server Manager
+### Automatic dependency install (recommended)
+
+Run `Install-PassReset.ps1` from an elevated PowerShell. The installer detects missing IIS roles and offers a **single Y/N prompt** to enable all of them via **DISM** in one step (per-feature prompts are deliberately avoided). The required set is:
+
+- `Web-Server`, `Web-WebServer`, `Web-Static-Content`, `Web-Default-Doc`
+- `Web-Http-Errors`, `Web-Http-Logging`, `Web-Filtering`, `Web-Mgmt-Console`
+
+> `Web-ASPNET45` / `Web-Asp-Net45` / `Web-Net-Ext45` are .NET Framework 4.x features. They are **not** required for ASP.NET Core and do not exist on Server 2019+. The installer does NOT request them.
+
+If you decline the prompt, the installer prints the exact `dism /online /enable-feature /featurename:<X> /all /norestart` commands for each missing feature and exits cleanly (exit 0). No partial state.
+
+Use `-Force` for unattended / CI installs — DISM enable runs without prompting.
+
+The **.NET 10 Hosting Bundle** is **not** auto-installed. If it is missing, the installer prints the Microsoft download URL and exits 0 cleanly — see [Step 2](#step-2--install-the-net-10-hosting-bundle) below, then re-run the installer.
+
+### Manual fallback (declined Y/N prompt, pre-Windows-Server-2019, or air-gapped builds)
+
+If you prefer to enable features manually — for example when the installer's DISM prompt is declined, the host runs pre-Server-2019, or the deployment is air-gapped — use one of the following:
+
+#### Via Server Manager
 
 1. Open **Server Manager** → **Add Roles and Features**
 2. Role-based or feature-based installation → next
@@ -42,13 +61,22 @@ Step-by-step instructions for deploying PassReset on **Windows Server 2019 / 202
    - ✓ IIS Management Console
 9. Complete the wizard and reboot if prompted.
 
-### Via PowerShell (faster)
+#### Via PowerShell (faster)
 
 ```powershell
 Install-WindowsFeature -Name `
     Web-Server, Web-WebServer, Web-Static-Content, Web-Default-Doc,
     Web-Http-Errors, Web-Http-Logging, Web-Filtering, Web-Mgmt-Console `
     -IncludeManagementTools
+```
+
+#### Via DISM (matches the installer's flow)
+
+```powershell
+foreach ($f in 'Web-Server','Web-WebServer','Web-Static-Content','Web-Default-Doc',
+                'Web-Http-Errors','Web-Http-Logging','Web-Filtering','Web-Mgmt-Console') {
+    dism /online /enable-feature /featurename:$f /all /norestart
+}
 ```
 
 > **Note:** `Web-ASPNET45` and `Web-Asp-Net45` are .NET Framework 4.x features. They are **not** required for ASP.NET Core and do not exist on Server 2019+. Do not include them.
@@ -61,11 +89,12 @@ The Hosting Bundle installs the ASP.NET Core runtime **and** the IIS in-process 
 
 ### Option A — Direct download
 
-Download the current Windows Hosting Bundle installer directly:
+Download the .NET 10 Windows Hosting Bundle from the Microsoft portal:
 
-**https://dotnet.microsoft.com/permalink/dotnetcore-current-windows-runtime-bundle-installer**
+- Landing page: **https://dotnet.microsoft.com/download/dotnet/10.0**
+- Or the permalink to the current runtime bundle installer: **https://dotnet.microsoft.com/permalink/dotnetcore-current-windows-runtime-bundle-installer**
 
-Run the installer as Administrator, then run `iisreset`.
+Choose **"ASP.NET Core Runtime – Hosting Bundle"** for Windows. Run the installer as Administrator, then run `iisreset`.
 
 ### Option B — winget (Windows Package Manager)
 
