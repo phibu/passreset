@@ -237,6 +237,11 @@ $siteExists = Test-Path "IIS:\Sites\$SiteName"
 
 # ─── Upgrade detection ────────────────────────────────────────────────────────
 
+# Initialize flags outside the $siteExists gate so Set-StrictMode does not fault
+# on fresh-install paths that never enter the block.
+$isDowngrade   = $false
+$isReconfigure = $false
+
 if ($siteExists) {
     $deployedExe     = Join-Path $PhysicalPath 'PassReset.Web.exe'
     $currentVersion  = if (Test-Path $deployedExe) {
@@ -244,13 +249,14 @@ if ($siteExists) {
                        } else { 'unknown' }
     $incomingVersion = (Get-Item $webExe).VersionInfo.FileVersion -replace '\.0$'
 
-    # Detect downgrade vs upgrade using semantic version comparison.
-    $isDowngrade = $false
-    $parsedCurrent = $null
+    # Detect downgrade, reconfigure (same version), or upgrade via semantic version comparison.
+    # (Flags already initialized above to false so strict-mode on fresh installs is happy.)
+    $parsedCurrent  = $null
     $parsedIncoming = $null
     if ([version]::TryParse($currentVersion, [ref]$parsedCurrent) -and
         [version]::TryParse($incomingVersion, [ref]$parsedIncoming)) {
-        if ($parsedIncoming -lt $parsedCurrent) { $isDowngrade = $true }
+        if     ($parsedIncoming -lt $parsedCurrent) { $isDowngrade   = $true }
+        elseif ($parsedIncoming -eq $parsedCurrent) { $isReconfigure = $true }
     }
 
     Write-Host ''
@@ -260,21 +266,32 @@ if ($siteExists) {
     if ($isDowngrade) {
         Write-Host '       WARNING   : Incoming version is OLDER than installed (downgrade).' -ForegroundColor Red
         Write-Host '                   Config schema or data migrations may not reverse cleanly.' -ForegroundColor Red
+    } elseif ($isReconfigure) {
+        Write-Host '       NOTE      : Incoming version is the SAME as installed — this will RE-CONFIGURE, not upgrade.' -ForegroundColor Yellow
+        Write-Host '                   File mirror will be skipped; app-pool / binding / config logic still re-runs.' -ForegroundColor Yellow
     }
     Write-Host ''
 
     if (-not $Force) {
-        $prompt = if ($isDowngrade) { '  Continue with DOWNGRADE? [Y/N]' } else { '  Continue with upgrade? [Y/N]' }
+        $prompt = if ($isDowngrade) {
+            '  Continue with DOWNGRADE? [Y/N]'
+        } elseif ($isReconfigure) {
+            '  Re-configure existing installation? [Y/N]'
+        } else {
+            '  Continue with upgrade? [Y/N]'
+        }
         $confirm = Read-Host $prompt
         if ($confirm -notmatch '^[Yy]') {
-            Write-Host "`n  Upgrade cancelled." -ForegroundColor Yellow
+            Write-Host "`n  Cancelled." -ForegroundColor Yellow
             exit 0
         }
     } else {
         if ($isDowngrade) {
-            Write-Warn '-Force specified — proceeding with downgrade despite version regression'
+            Write-Warn '-Force specified - proceeding with downgrade despite version regression'
+        } elseif ($isReconfigure) {
+            Write-Ok '-Force specified - re-configuring without file mirror'
         } else {
-            Write-Ok '-Force specified — skipping upgrade confirmation'
+            Write-Ok '-Force specified - skipping upgrade confirmation'
         }
     }
 }
@@ -323,13 +340,20 @@ if ($siteExists) {
 # Copy publish output (robocopy: /MIR = mirror, /NFL /NDL = quiet).
 # /XF preserves the operator's production config and any local overrides across mirror.
 # /XD preserves the logs folder if ever colocated under the deploy root.
-robocopy $PublishFolder $PhysicalPath /MIR /NFL /NDL /NJH /NJS /R:3 /W:5 `
-    /XF 'appsettings.Production.json' 'appsettings.Local.json' `
-    /XD 'logs' | Out-Null
-if ($LASTEXITCODE -ge 8) {
-    Abort "robocopy failed with exit code $LASTEXITCODE"
+# STAB-002: reconfigure mode (incoming version == installed) skips the mirror so
+# the operator's existing publish folder is preserved; app-pool / binding / config
+# logic below still re-runs.
+if (-not $isReconfigure) {
+    robocopy $PublishFolder $PhysicalPath /MIR /NFL /NDL /NJH /NJS /R:3 /W:5 `
+        /XF 'appsettings.Production.json' 'appsettings.Local.json' `
+        /XD 'logs' | Out-Null
+    if ($LASTEXITCODE -ge 8) {
+        Abort "robocopy failed with exit code $LASTEXITCODE"
+    }
+    Write-Ok 'Files copied (preserved: appsettings.Production.json, appsettings.Local.json, logs\)'
+} else {
+    Write-Ok 'Reconfigure mode - skipping file mirror; existing publish folder preserved'
 }
-Write-Ok 'Files copied (preserved: appsettings.Production.json, appsettings.Local.json, logs\)'
 
 # ─── 4. App pool ──────────────────────────────────────────────────────────────
 
@@ -341,9 +365,15 @@ $existingIdentityType = $null
 $existingIdentity     = $null
 if ($poolExists) {
     try {
-        $existingIdentityType = (Get-ItemProperty "IIS:\AppPools\$AppPoolName" -Name processModel.identityType -ErrorAction Stop).Value
+        # STAB-003: Get-WebConfigurationProperty is reliable across Windows PowerShell 5.1
+        # and PowerShell 7.x; the previous Get-ItemProperty | .Value pattern intermittently
+        # returned $null on PS 7.x and triggered a spurious "Could not read" warning.
+        $appPoolFilter = "system.applicationHost/applicationPools/add[@name='$AppPoolName']"
+        $existingIdentityType = (Get-WebConfigurationProperty -PSPath 'IIS:\' `
+            -Filter $appPoolFilter -Name processModel.identityType -ErrorAction Stop).Value
         if ($existingIdentityType -eq 'SpecificUser' -or $existingIdentityType -eq 3) {
-            $existingIdentity = (Get-ItemProperty "IIS:\AppPools\$AppPoolName" -Name processModel.userName -ErrorAction Stop).Value
+            $existingIdentity = (Get-WebConfigurationProperty -PSPath 'IIS:\' `
+                -Filter $appPoolFilter -Name processModel.userName -ErrorAction Stop).Value
         }
     } catch {
         Write-Warning "Could not read existing AppPool identity: $($_.Exception.Message). Will fall through to default handling."
