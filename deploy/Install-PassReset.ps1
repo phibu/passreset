@@ -101,7 +101,27 @@ $ErrorActionPreference = 'Stop'
 function Write-Step  { param([string]$Msg) Write-Host "`n[>>] $Msg" -ForegroundColor Cyan }
 function Write-Ok    { param([string]$Msg) Write-Host "  [OK] $Msg" -ForegroundColor Green }
 function Write-Warn  { param([string]$Msg) Write-Host "  [!!] $Msg" -ForegroundColor Yellow }
-function Abort       { param([string]$Msg) Write-Host "`n[ERR] $Msg`n" -ForegroundColor Red; exit 1 }
+
+# WR-01: Track sites we stopped during port-80 conflict resolution so we can
+# restart them if the install later aborts. Initialised outside strict-mode
+# gates so Restore-StoppedForeignSites can always read it.
+$script:StoppedForeignSites = @()
+
+function Restore-StoppedForeignSites {
+    if (-not $script:StoppedForeignSites -or $script:StoppedForeignSites.Count -eq 0) { return }
+    foreach ($s in $script:StoppedForeignSites) {
+        try {
+            Start-Website -Name $s -ErrorAction Stop
+            Write-Ok "Restarted foreign site '$s' after abort"
+        }
+        catch {
+            Write-Warn "Could not restart '$s' — restart manually via IIS Manager"
+        }
+    }
+    $script:StoppedForeignSites = @()
+}
+
+function Abort       { param([string]$Msg) Restore-StoppedForeignSites; Write-Host "`n[ERR] $Msg`n" -ForegroundColor Red; exit 1 }
 
 # ─── 1. Prerequisites ─────────────────────────────────────────────────────────
 
@@ -450,6 +470,7 @@ if (-not $siteExists -and $selectedHttpPort -eq 80) {
                     foreach ($s in $conflictSites) {
                         if ($PSCmdlet.ShouldProcess("IIS site $s", 'Stop')) {
                             Stop-Website -Name $s -ErrorAction Stop
+                            $script:StoppedForeignSites += $s
                             Write-Ok "Stopped site '$s'"
                         }
                     }
