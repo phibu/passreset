@@ -1,4 +1,4 @@
-#Requires -RunAsAdministrator
+﻿#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
     Removes a PassReset installation from IIS and the file system.
@@ -59,14 +59,14 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# ─── Helpers ──────────────────────────────────────────────────────────────────
+# --- Helpers ------------------------------------------------------------------
 
 function Write-Step  { param([string]$Msg) Write-Host "`n[>>] $Msg" -ForegroundColor Cyan }
 function Write-Ok    { param([string]$Msg) Write-Host "  [OK] $Msg" -ForegroundColor Green }
 function Write-Warn  { param([string]$Msg) Write-Host "  [!!] $Msg" -ForegroundColor Yellow }
 function Abort       { param([string]$Msg) Write-Host "`n[ERR] $Msg`n" -ForegroundColor Red; exit 1 }
 
-# ─── Detect what exists ───────────────────────────────────────────────────────
+# --- Detect what exists -------------------------------------------------------
 
 Import-Module WebAdministration -ErrorAction SilentlyContinue
 
@@ -77,7 +77,7 @@ $pathExists = Test-Path $PhysicalPath
 # Find backup folders created by the upgrade path of Install-PassReset.ps1
 $backupFolders = @(Get-Item "${PhysicalPath}_backup_*" -ErrorAction SilentlyContinue)
 
-# ─── Nothing to do? ───────────────────────────────────────────────────────────
+# --- Nothing to do? -----------------------------------------------------------
 
 if (-not $siteExists -and -not $poolExists -and -not $pathExists) {
     Write-Warn "Nothing found to remove:"
@@ -87,7 +87,7 @@ if (-not $siteExists -and -not $poolExists -and -not $pathExists) {
     exit 0
 }
 
-# ─── Show what will be removed ────────────────────────────────────────────────
+# --- Show what will be removed ------------------------------------------------
 
 Write-Host ''
 Write-Host '  The following will be removed:' -ForegroundColor Yellow
@@ -106,7 +106,7 @@ Write-Host ''
 Write-Host '  IIS, IIS features, .NET Hosting Bundle, and certificates are NOT affected.' -ForegroundColor DarkGray
 Write-Host ''
 
-# ─── Confirm ──────────────────────────────────────────────────────────────────
+# --- Confirm ------------------------------------------------------------------
 
 if (-not $Force) {
     $confirm = Read-Host '  Proceed with uninstall? [Y/N]'
@@ -116,7 +116,7 @@ if (-not $Force) {
     }
 }
 
-# ─── 1. Stop and remove IIS site ──────────────────────────────────────────────
+# --- 1. Stop and remove IIS site ----------------------------------------------
 
 Write-Step "Removing IIS site: $SiteName"
 
@@ -132,7 +132,7 @@ if ($siteExists) {
     Write-Warn "IIS site '$SiteName' not found — skipping"
 }
 
-# ─── 2. Stop and remove app pool ──────────────────────────────────────────────
+# --- 2. Stop and remove app pool ----------------------------------------------
 
 Write-Step "Removing app pool: $AppPoolName"
 
@@ -148,7 +148,7 @@ if ($poolExists) {
     Write-Warn "App pool '$AppPoolName' not found — skipping"
 }
 
-# ─── 3. Remove deployment folder ──────────────────────────────────────────────
+# --- 3. Remove deployment folder ----------------------------------------------
 
 if (-not $KeepFiles) {
     Write-Step "Removing deployment folder: $PhysicalPath"
@@ -164,7 +164,7 @@ if (-not $KeepFiles) {
     Write-Warn "Files retained at $PhysicalPath"
 }
 
-# ─── 4. Remove upgrade backup folders (optional) ──────────────────────────────
+# --- 4. Remove upgrade backup folders (optional) ------------------------------
 
 if ($RemoveBackups) {
     Write-Step 'Removing upgrade backup folders'
@@ -186,7 +186,7 @@ if ($RemoveBackups) {
     Write-Warn "Re-run with -RemoveBackups to delete them."
 }
 
-# ─── Done ─────────────────────────────────────────────────────────────────────
+# --- Done ---------------------------------------------------------------------
 
 Write-Host ''
 Write-Host '======================================================' -ForegroundColor Cyan
