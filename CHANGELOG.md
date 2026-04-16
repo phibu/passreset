@@ -8,6 +8,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **STAB-001 (gh#19):** Fresh installs no longer fail when IIS Default Web Site is bound to port 80. `Install-PassReset.ps1` now detects the conflict and offers three interactive choices (stop conflicting site(s), pick first free port in 8080-8090, or abort). `-Force` mode never silently stops a foreign site — it picks the alternate port and aborts only if 80 + 8080-8090 are all taken. Installer prints the final reachable URL(s) at completion. *(installer)*
+- **STAB-002 (gh#20):** Re-running the installer with the currently installed version now prompts **"Re-configure existing installation?"** instead of the old "upgrade" prompt. On confirm the robocopy `/MIR` file mirror is skipped (existing publish folder preserved) while app-pool, binding, and config logic still re-run. `-Force` logs `-Force specified - re-configuring without file mirror`. *(installer)*
+- **STAB-003 (gh#23):** Upgrade no longer prints a spurious `Could not read existing AppPool identity` warning before falling back to defaults. AppPool identity is now read via `Get-WebConfigurationProperty`, which is reliable across Windows PowerShell 5.1 and PowerShell 7.x. Restores the BUG-003 four-branch preserve contract byte-for-byte. *(installer)*
+- **STAB-004 (gh#36):** Two consecutive password changes for the same user no longer surface as `UnauthorizedAccessException` / `E_ACCESSDENIED` / generic crash. A new `PreCheckMinPwdAge` helper compares `pwdLastSet` against the domain `minPwdAge` and short-circuits with `ApiErrorCode.PasswordTooRecentlyChanged` (code 19) and a minute-level remaining-time message. The existing `COMException` catch remains intact as the defense-in-depth floor. *(provider)*
+- **STAB-005 (gh#39):** `Uninstall-PassReset.ps1` now parses and runs cleanly on Windows PowerShell 5.1 and PowerShell 7.x. Re-saved as UTF-8 with BOM; Unicode `─` (U+2500) box-drawing dividers replaced with ASCII `---`. `-KeepFiles` continues to preserve the publish folder. *(deploy)*
+- **STAB-006 (gh#21):** `Install-PassReset.ps1` now offers a single Y/N consent prompt to enable all missing IIS features via DISM (`Start-Process dism.exe /online /enable-feature`), gated by `$PSCmdlet.ShouldProcess` so `-WhatIf` works. Declining the prompt prints the exact DISM commands to run manually and exits 0 cleanly. A missing or wrong-version .NET 10 Hosting Bundle no longer aborts — it prints the download URL (`https://dotnet.microsoft.com/download/dotnet/10.0`) and exits 0. *(installer)*
+
 ---
 
 ## [1.3.2] — 2026-04-16
