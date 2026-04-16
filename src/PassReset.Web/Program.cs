@@ -24,26 +24,55 @@ try
     var builder = WebApplication.CreateBuilder(args);
 
     // ─── Serilog (reads Serilog section from appsettings; enrich with HTTP context) ─
-    builder.Host.UseSerilog((ctx, services, lc) => lc
-        .ReadFrom.Configuration(ctx.Configuration)
-        .ReadFrom.Services(services)
-        .Enrich.FromLogContext());
+    // preserveStaticLogger: true keeps the bootstrap logger independent of the host's
+    // pipeline logger. Required for WebApplicationFactory<Program> test re-entry —
+    // without it the static ReloadableLogger from a prior test run is "already frozen"
+    // when UseSerilog tries to replace it on the next run, producing
+    // InvalidOperationException: "The logger is already frozen."
+    builder.Host.UseSerilog(
+        (ctx, services, lc) => lc
+            .ReadFrom.Configuration(ctx.Configuration)
+            .ReadFrom.Services(services)
+            .Enrich.FromLogContext(),
+        preserveStaticLogger: true);
 
-    // ─── Configuration ────────────────────────────────────────────────────────────
-    builder.Services.Configure<ClientSettings>(
-        builder.Configuration.GetSection(nameof(ClientSettings)));
-    builder.Services.Configure<WebSettings>(
-        builder.Configuration.GetSection(nameof(WebSettings)));
-    builder.Services.Configure<SmtpSettings>(
-        builder.Configuration.GetSection(nameof(SmtpSettings)));
-    builder.Services.Configure<EmailNotificationSettings>(
-        builder.Configuration.GetSection(nameof(EmailNotificationSettings)));
-    builder.Services.Configure<PasswordExpiryNotificationSettings>(
-        builder.Configuration.GetSection(nameof(PasswordExpiryNotificationSettings)));
-    builder.Services.Configure<SiemSettings>(
-        builder.Configuration.GetSection(nameof(SiemSettings)));
-    builder.Services.Configure<PasswordChangeOptions>(
-        builder.Configuration.GetSection(nameof(PasswordChangeOptions)));
+    // ─── Configuration — AddOptions<T>().Bind().ValidateOnStart() per D-07 ────────
+    // Each validator is registered adjacent to its AddOptions call so failure surfaces
+    // as OptionsValidationException at DI build → StartupValidationFailureLogger writes
+    // to the Windows Application Event Log under source 'PassReset' before IIS returns 502.
+    builder.Services.AddOptions<ClientSettings>()
+        .Bind(builder.Configuration.GetSection(nameof(ClientSettings)))
+        .ValidateOnStart();
+    builder.Services.AddSingleton<IValidateOptions<ClientSettings>, ClientSettingsValidator>();
+
+    builder.Services.AddOptions<WebSettings>()
+        .Bind(builder.Configuration.GetSection(nameof(WebSettings)))
+        .ValidateOnStart();
+    builder.Services.AddSingleton<IValidateOptions<WebSettings>, WebSettingsValidator>();
+
+    builder.Services.AddOptions<SmtpSettings>()
+        .Bind(builder.Configuration.GetSection(nameof(SmtpSettings)))
+        .ValidateOnStart();
+    builder.Services.AddSingleton<IValidateOptions<SmtpSettings>, SmtpSettingsValidator>();
+
+    builder.Services.AddOptions<EmailNotificationSettings>()
+        .Bind(builder.Configuration.GetSection(nameof(EmailNotificationSettings)))
+        .ValidateOnStart();
+    builder.Services.AddSingleton<IValidateOptions<EmailNotificationSettings>, EmailNotificationSettingsValidator>();
+
+    builder.Services.AddOptions<PasswordExpiryNotificationSettings>()
+        .Bind(builder.Configuration.GetSection(nameof(PasswordExpiryNotificationSettings)))
+        .ValidateOnStart();
+    builder.Services.AddSingleton<IValidateOptions<PasswordExpiryNotificationSettings>, PasswordExpiryNotificationSettingsValidator>();
+
+    builder.Services.AddOptions<SiemSettings>()
+        .Bind(builder.Configuration.GetSection(nameof(SiemSettings)))
+        .ValidateOnStart();
+    builder.Services.AddSingleton<IValidateOptions<SiemSettings>, SiemSettingsValidator>();
+
+    builder.Services.AddOptions<PasswordChangeOptions>()
+        .Bind(builder.Configuration.GetSection(nameof(PasswordChangeOptions)))
+        .ValidateOnStart();
     builder.Services.AddSingleton<IValidateOptions<PasswordChangeOptions>, PasswordChangeOptionsValidator>();
 
     // ─── PwnedPasswordChecker — HttpClient injected via IHttpClientFactory ─────
@@ -265,15 +294,26 @@ try
     app.Run();
     return 0;
 }
-catch (Exception ex) when (ex is not HostAbortedException)
+catch (OptionsValidationException ex)
 {
-    Log.Fatal(ex, "PassReset terminated unexpectedly");
-    return 1;
+    // D-07: operator-actionable diagnosis path for misconfigured appsettings.
+    // Write to Windows Application Event Log (source 'PassReset') so operators see
+    // the validation failure in Event Viewer, not just a bare IIS 502. Source
+    // registration is owned by Install-PassReset.ps1 (plan 08-04); missing source
+    // is silently swallowed inside the helper. After logging, re-throw so the
+    // ASP.NET Core module / WebApplicationFactory observes the original failure.
+    StartupValidationFailureLogger.LogToEventLog(ex);
+    Log.Fatal(ex, "PassReset configuration validation failed at startup: {Failures}",
+        string.Join(" | ", ex.Failures ?? []));
+    throw;
 }
-finally
-{
-    Log.CloseAndFlush();
-}
+// NOTE: Do NOT add a broad `catch (Exception)` or a `finally { Log.CloseAndFlush(); }`
+// here. WebApplicationFactory<Program> / HostFactoryResolver re-enters this top-level
+// program across multiple tests in a single process and signals its handoff with an
+// internal exception (StopTheHostException) that MUST propagate. A broad catch swallows
+// that signal and breaks subsequent tests with "entry point exited without ever building
+// an IHost". The host owns Serilog's lifetime via UseSerilog(); the process shutdown
+// path flushes the logger — we do not need CloseAndFlush here.
 
 // Marker type to allow WebApplicationFactory<Program> in test projects.
 // Top-level programs generate an internal Program class; this makes it public.
