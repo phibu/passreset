@@ -9,6 +9,9 @@ namespace PassReset.PasswordProvider;
 /// </summary>
 public sealed class PasswordChangeOptionsValidator : IValidateOptions<PasswordChangeOptions>
 {
+    private static string Fmt(string path, string reason, string actual)
+        => $"{path}: {reason} (got \"{actual}\"). Edit appsettings.Production.json or run Install-PassReset.ps1 -Reconfigure.";
+
     public ValidateOptionsResult Validate(string? name, PasswordChangeOptions options)
     {
         if (options.UseAutomaticContext)
@@ -18,16 +21,18 @@ public sealed class PasswordChangeOptionsValidator : IValidateOptions<PasswordCh
         if (options.LdapHostnames.Length == 0
             || options.LdapHostnames.All(h => string.IsNullOrWhiteSpace(h)))
         {
-            return ValidateOptionsResult.Fail(
-                "PasswordChangeOptions.LdapHostnames must contain at least one non-empty hostname " +
-                "when UseAutomaticContext is false.");
+            return ValidateOptionsResult.Fail(Fmt(
+                "PasswordChangeOptions.LdapHostnames",
+                "must contain at least one non-empty hostname when UseAutomaticContext is false",
+                "[]"));
         }
 
         if (options.LdapPort <= 0 || options.LdapPort > 65535)
         {
-            return ValidateOptionsResult.Fail(
-                $"PasswordChangeOptions.LdapPort '{options.LdapPort}' is not a valid port number. " +
-                "Use 636 for LDAPS (recommended) or 389 for plain LDAP.");
+            return ValidateOptionsResult.Fail(Fmt(
+                "PasswordChangeOptions.LdapPort",
+                "is not a valid port number (use 636 for LDAPS, 389 for plain LDAP)",
+                options.LdapPort.ToString(System.Globalization.CultureInfo.InvariantCulture)));
         }
 
         return ValidateOptionsResult.Success;
