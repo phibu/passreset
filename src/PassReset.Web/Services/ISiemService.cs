@@ -44,4 +44,11 @@ public interface ISiemService
 {
     /// <summary>Records a security event synchronously (no async I/O on the hot path).</summary>
     void LogEvent(SiemEventType eventType, string username, string ipAddress, string? detail = null);
+
+    /// <summary>
+    /// STAB-015: Records a structured audit event via the allowlist <see cref="AuditEvent"/>
+    /// DTO (D-10). Emits an RFC 5424 STRUCTURED-DATA element through the configured SD-ID.
+    /// Must not throw — hot-path invariant identical to the legacy overload.
+    /// </summary>
+    void LogEvent(AuditEvent evt);
 }

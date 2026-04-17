@@ -65,6 +65,16 @@ internal sealed class SiemService : ISiemService, IDisposable
             EnqueueAlertEmail(eventType, username, ipAddress, detail);
     }
 
+    /// <inheritdoc />
+    public void LogEvent(AuditEvent evt)
+    {
+        if (_settings.Syslog.Enabled)
+            EmitSyslogStructured(evt);
+
+        if (_settings.AlertEmail.Enabled)
+            EnqueueAlertEmail(evt.EventType, evt.Username, evt.ClientIp ?? string.Empty, evt.Detail);
+    }
+
     // ─── Syslog ───────────────────────────────────────────────────────────────
 
     private void EmitSyslog(SiemEventType eventType, string username, string ipAddress, string? detail)
@@ -97,6 +107,39 @@ internal sealed class SiemService : ISiemService, IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Syslog delivery failed for event {Event} user {User}", eventType, username);
+        }
+    }
+
+    // STAB-015: Emit an RFC 5424 STRUCTURED-DATA element for an AuditEvent. Mirrors
+    // EmitSyslog's transport + try/catch-swallow-and-log invariant so that audit
+    // emission never escapes to the hot path.
+    private void EmitSyslogStructured(AuditEvent evt)
+    {
+        try
+        {
+            var syslog   = _settings.Syslog;
+            var severity = SeverityMap.GetValueOrDefault(evt.EventType, 5);
+            var hostname = Dns.GetHostName();
+
+            var message = SiemSyslogFormatter.Format(
+                timestampUtc: DateTimeOffset.UtcNow,
+                facility:     syslog.Facility,
+                severity:     severity,
+                hostname:     hostname,
+                appName:      syslog.AppName,
+                sdId:         syslog.SdId,
+                evt:          evt);
+
+            var bytes = Encoding.UTF8.GetBytes(message);
+
+            if (syslog.Protocol.Equals("TCP", StringComparison.OrdinalIgnoreCase))
+                SendTcp(syslog.Host, syslog.Port, bytes);
+            else
+                SendUdp(syslog.Host, syslog.Port, bytes);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Syslog structured delivery failed for event {Event} user {User}", evt.EventType, evt.Username);
         }
     }
 
