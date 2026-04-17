@@ -17,11 +17,13 @@ public sealed class PasswordChangeOptionsValidator : IValidateOptions<PasswordCh
         if (options.UseAutomaticContext)
             return ValidateOptionsResult.Success;
 
+        var failures = new List<string>();
+
         // Manual context requires at least one resolvable hostname.
         if (options.LdapHostnames.Length == 0
             || options.LdapHostnames.All(h => string.IsNullOrWhiteSpace(h)))
         {
-            return ValidateOptionsResult.Fail(Fmt(
+            failures.Add(Fmt(
                 "PasswordChangeOptions.LdapHostnames",
                 "must contain at least one non-empty hostname when UseAutomaticContext is false",
                 "[]"));
@@ -29,12 +31,14 @@ public sealed class PasswordChangeOptionsValidator : IValidateOptions<PasswordCh
 
         if (options.LdapPort <= 0 || options.LdapPort > 65535)
         {
-            return ValidateOptionsResult.Fail(Fmt(
+            failures.Add(Fmt(
                 "PasswordChangeOptions.LdapPort",
                 "is not a valid port number (use 636 for LDAPS, 389 for plain LDAP)",
                 options.LdapPort.ToString(System.Globalization.CultureInfo.InvariantCulture)));
         }
 
-        return ValidateOptionsResult.Success;
+        return failures.Count == 0
+            ? ValidateOptionsResult.Success
+            : ValidateOptionsResult.Fail(failures);
     }
 }
