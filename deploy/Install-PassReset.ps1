@@ -153,12 +153,28 @@ function Get-SchemaKeyManifest {
             $entries += Get-SchemaKeyManifest -Schema $node -Prefix $path
         } else {
             # Leaf: scalar OR array (arrays atomic per D-14)
+            # Gate property access behind PSObject.Properties.Name -contains checks so that
+            # Set-StrictMode -Version Latest (used by the installer) does not throw when a
+            # schema node omits x-passreset-obsolete / x-passreset-obsolete-since / default.
+            $isObsolete = $false
+            if ($node.PSObject.Properties.Name -contains 'x-passreset-obsolete') {
+                $isObsolete = ($node.'x-passreset-obsolete' -eq $true)
+            }
+            $obsoleteSince = $null
+            if ($node.PSObject.Properties.Name -contains 'x-passreset-obsolete-since') {
+                $obsoleteSince = $node.'x-passreset-obsolete-since'
+            }
+            $defaultValue = $null
+            $hasDefault = $node.PSObject.Properties.Name -contains 'default'
+            if ($hasDefault) {
+                $defaultValue = $node.default
+            }
             $entries += [PSCustomObject]@{
                 Path           = $path
-                Default        = if ($node.PSObject.Properties.Name -contains 'default') { $node.default } else { $null }
-                HasDefault     = ($node.PSObject.Properties.Name -contains 'default')
-                IsObsolete     = (($node.PSObject.Properties.Name -contains 'x-passreset-obsolete') -and ($node.'x-passreset-obsolete' -eq $true))
-                ObsoleteSince  = if ($node.PSObject.Properties.Name -contains 'x-passreset-obsolete-since') { $node.'x-passreset-obsolete-since' } else { $null }
+                Default        = $defaultValue
+                HasDefault     = $hasDefault
+                IsObsolete     = $isObsolete
+                ObsoleteSince  = $obsoleteSince
                 Type           = $node.type
             }
         }
