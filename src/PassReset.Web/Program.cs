@@ -237,6 +237,7 @@ try
     // ─── Security headers — applied to every response before any other middleware ─
     app.Use(async (context, next) =>
     {
+        var runtimeWeb = context.RequestServices.GetRequiredService<IOptions<WebSettings>>().Value;
         var headers = context.Response.Headers;
         headers["X-Frame-Options"]         = "DENY";
         headers["X-Content-Type-Options"]  = "nosniff";
@@ -253,7 +254,7 @@ try
             "form-action 'self'; " +
             "object-src 'none'";
 
-        if (webSettings.EnableHttpsRedirect)
+        if (runtimeWeb.EnableHttpsRedirect)
             headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
 
         await next(context);
