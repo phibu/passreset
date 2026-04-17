@@ -23,11 +23,24 @@ namespace PassReset.Tests.Web.Controllers;
 /// while preserving granular codes in Development (D-03 regression guard) and preserving
 /// non-auth codes (e.g. <see cref="ApiErrorCode.ChangeNotPermitted"/>) in every environment.
 ///
-/// SIEM granularity is NOT covered here — see <c>SiemSyslogFormatterTests</c> and the
-/// <c>Audit()</c> call site in <c>PasswordController.PostAsync</c> (D-05).
+/// WR-02 (code review): Also asserts the D-05 invariant — when the wire response is
+/// redacted to <c>Generic</c>, the SIEM event must still record the granular event
+/// type (<c>InvalidCredentials</c> / <c>UserNotFound</c>) so SOC operators can triage
+/// from syslog alone.
 /// </summary>
 public class GenericErrorMappingTests : IDisposable
 {
+    /// <summary>
+    /// WR-02: test-double ISiemService that records every <see cref="SiemEventType"/>
+    /// it sees so tests can assert the D-05 invariant (wire collapses, SIEM stays granular).
+    /// </summary>
+    public sealed class RecordingSiemService : ISiemService
+    {
+        public List<SiemEventType> Events { get; } = new();
+        public void LogEvent(SiemEventType eventType, string username, string ipAddress, string? detail = null)
+            => Events.Add(eventType);
+        public void LogEvent(AuditEvent evt) => Events.Add(evt.EventType);
+    }
     // Per-test factory disposal keeps rate-limiter partition state isolated and lets
     // individual tests flip the hosting environment without leaking across test methods.
     public void Dispose() => GC.SuppressFinalize(this);
@@ -113,6 +126,17 @@ public class GenericErrorMappingTests : IDisposable
     }
 
     /// <summary>
+    /// WR-02: replace the default SIEM service with a recorder so tests can assert
+    /// which <see cref="SiemEventType"/> values the controller emitted.
+    /// </summary>
+    private static void SwapInRecordingSiem(IServiceCollection services, RecordingSiemService recorder)
+    {
+        var descriptors = services.Where(d => d.ServiceType == typeof(ISiemService)).ToList();
+        foreach (var d in descriptors) services.Remove(d);
+        services.AddSingleton<ISiemService>(recorder);
+    }
+
+    /// <summary>
     /// Forces <c>IHostEnvironment.EnvironmentName == "Production"</c> so the STAB-013
     /// collapse gate fires.
     /// </summary>
@@ -126,6 +150,28 @@ public class GenericErrorMappingTests : IDisposable
                 config.AddInMemoryCollection(TestConfig());
             });
             builder.ConfigureTestServices(SwapInDebugProvider);
+        }
+    }
+
+    /// <summary>
+    /// WR-02: Production env + recording SIEM. Used to assert the D-05 invariant
+    /// that SIEM stays granular while the wire collapses.
+    /// </summary>
+    public sealed class ProductionEnvFactoryWithRecorder : WebApplicationFactory<Program>
+    {
+        public RecordingSiemService Recorder { get; } = new();
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            builder.UseEnvironment("Production");
+            builder.ConfigureAppConfiguration((_, config) =>
+            {
+                config.AddInMemoryCollection(TestConfig());
+            });
+            builder.ConfigureTestServices(services =>
+            {
+                SwapInDebugProvider(services);
+                SwapInRecordingSiem(services, Recorder);
+            });
         }
     }
 
@@ -216,5 +262,56 @@ public class GenericErrorMappingTests : IDisposable
         Assert.NotNull(result);
         Assert.Single(result!.Errors);
         Assert.Equal(ApiErrorCode.InvalidCredentials, result.Errors[0].ErrorCode);
+    }
+
+    /// <summary>
+    /// WR-02 regression guard (D-05 invariant): when the wire collapses
+    /// InvalidCredentials to Generic in Production, the SIEM event must still
+    /// carry the granular <see cref="SiemEventType.InvalidCredentials"/> so
+    /// SOC operators can triage from syslog alone. A bug that collapsed BOTH
+    /// wire and SIEM (a plausible refactor mistake) would silently pass the
+    /// existing four tests — this one catches it.
+    /// </summary>
+    [Fact]
+    public async Task Production_InvalidCredentials_SiemRemainsGranular()
+    {
+        using var factory = new ProductionEnvFactoryWithRecorder();
+        using var client  = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false,
+        });
+
+        var response = await client.PostAsJsonAsync("/api/password", MakeRequest("invalidCredentials"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var result = await ReadResultAsync(response);
+        Assert.Equal(ApiErrorCode.Generic, result!.Errors[0].ErrorCode);
+
+        // SIEM event must be the granular InvalidCredentials despite the wire collapse.
+        Assert.Contains(SiemEventType.InvalidCredentials, factory.Recorder.Events);
+        Assert.DoesNotContain(SiemEventType.Generic, factory.Recorder.Events);
+    }
+
+    /// <summary>
+    /// WR-02 regression guard (D-05 invariant): same as the InvalidCredentials
+    /// check but for the UserNotFound → Generic collapse path.
+    /// </summary>
+    [Fact]
+    public async Task Production_UserNotFound_SiemRemainsGranular()
+    {
+        using var factory = new ProductionEnvFactoryWithRecorder();
+        using var client  = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false,
+        });
+
+        var response = await client.PostAsJsonAsync("/api/password", MakeRequest("userNotFound"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var result = await ReadResultAsync(response);
+        Assert.Equal(ApiErrorCode.Generic, result!.Errors[0].ErrorCode);
+
+        Assert.Contains(SiemEventType.UserNotFound, factory.Recorder.Events);
+        Assert.DoesNotContain(SiemEventType.Generic, factory.Recorder.Events);
     }
 }
