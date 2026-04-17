@@ -8,8 +8,22 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using PassReset.Web.Models;
+using Xunit;
 
 namespace PassReset.Tests.Web.Startup;
+
+/// <summary>
+/// WR-03: xUnit v3 parallelizes test classes by default. Because this class mutates
+/// <see cref="EnvironmentVariableTarget.Process"/> state (a shared mutable global), any
+/// concurrently-executing class that reads <c>SmtpSettings__Password</c> or
+/// <c>ClientSettings__Recaptcha__PrivateKey</c> could observe the leaked value.
+/// This collection definition disables parallelization for member classes so
+/// env-var mutation is serialized without slowing the rest of the suite.
+/// </summary>
+[CollectionDefinition("EnvVarSerial", DisableParallelization = true)]
+public class EnvVarSerialCollection
+{
+}
 
 /// <summary>
 /// STAB-017 — Proves that ASP.NET Core's default <c>AddEnvironmentVariables()</c>
@@ -19,7 +33,11 @@ namespace PassReset.Tests.Web.Startup;
 /// Pitfall 5 in 09-RESEARCH.md).
 ///
 /// No production-code changes: this test is a documented contract, not a new feature.
+///
+/// WR-03: Belongs to the <c>EnvVarSerial</c> collection so process-scoped env-var
+/// mutations cannot leak across classes running in parallel.
 /// </summary>
+[Collection("EnvVarSerial")]
 public class EnvironmentVariableOverrideTests : IDisposable
 {
     private readonly List<string> _envVarsSet = new();
