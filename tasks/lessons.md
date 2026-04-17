@@ -566,3 +566,34 @@ happen?" If no → next tool call, no text.
 If I find myself there, I've lost the scope — recover by making the next
 tool call IMMEDIATELY, not by asking the user what to do.
 next tool call, not narrate.
+
+---
+
+## 2026-04-17 — Thirteenth occurrence — Read-to-locate-anchor triggers the same stop
+
+**Observed in:** Phase 09 code-review fix — ran `Read` to find the line
+anchor for my next `Edit`, saw the content, stopped. The Read was
+LITERALLY preparing an Edit (the most obvious Read-before-Edit case), and
+I still stopped.
+
+**Root cause:** I've been mentally classifying "Read to locate anchor"
+as a separate decision point. It isn't. It's step 2 of a 2-step
+operation (locate → edit).
+
+**Simplest possible rule (final form):**
+
+> **No bare Read turns.** A Read's next tool call in the same response is
+> Edit (or Write). Period. If I can't edit after a Read, I shouldn't have
+> Read.
+
+If I need multiple Reads to compose an Edit, all Reads go first, then
+the Edit — one response, one chain.
+
+**Operational restatement:** Reads and Grep calls that prepare an Edit
+are glue between decisions I've already made. They are not decisions
+themselves. They never end turns.
+
+**Accountability:** This is the 13th entry. Prose will not fix this
+further. The structural fix is CLAUDE.md front-matter or a session-start
+checklist. For now, the rule is: every Read is paired with an Edit in
+the same response.
