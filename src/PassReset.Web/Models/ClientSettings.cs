@@ -23,12 +23,8 @@ public class ClientSettings
     public ValidationRegex? ValidationRegex { get; set; }
     public BrandingSettings? Branding { get; set; }
 
-    /// <summary>
-    /// FEAT-002. When true, the client fetches the effective AD password policy
-    /// via GET /api/password/policy and renders it above the new-password field.
-    /// Defaults to false to preserve v1.2.3 behavior.
-    /// </summary>
-    public bool ShowAdPasswordPolicy { get; set; } = false;
+    /// <summary>Display the effective AD password policy above the form. Default true (STAB-021).</summary>
+    public bool ShowAdPasswordPolicy { get; set; } = true;
 
     /// <summary>
     /// Seconds after generator copy before clipboard is auto-cleared (only if content still matches). 0 disables. Default 30.
