@@ -48,3 +48,34 @@ export function mockFetchAlways(body: unknown, init: MockInit = {}) {
   vi.stubGlobal('fetch', fn);
   return fn;
 }
+
+/**
+ * URL-routing fetch mock. Routes requests by URL substring match.
+ * Falls back to the `default` response (or a safe empty-HIBP response) for
+ * unmatched URLs so that incidental fetches (e.g. debounced HIBP breach
+ * check via useHibpCheck) do not consume the primary test mock under CI-
+ * specific timing (see commit history: 2026-04-20 CI race).
+ */
+export function mockFetchByUrl(
+  routes: Record<string, { body: unknown; init?: MockInit }>,
+  options: { default?: { body: unknown; init?: MockInit } } = {},
+) {
+  const fallbackBody = options.default?.body ?? '';
+  const fallbackInit = options.default?.init ?? { status: 200 };
+  const fn = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+    const url =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : (input as Request).url;
+    for (const [needle, response] of Object.entries(routes)) {
+      if (url.includes(needle)) {
+        return buildResponse(response.body, response.init ?? {});
+      }
+    }
+    return buildResponse(fallbackBody, fallbackInit);
+  });
+  vi.stubGlobal('fetch', fn);
+  return fn;
+}

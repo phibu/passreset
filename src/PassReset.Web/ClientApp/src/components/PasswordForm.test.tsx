@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { PasswordForm } from './PasswordForm';
 import { ApiErrorCode } from '../types/settings';
 import type { ClientSettings } from '../types/settings';
-import { mockFetchOnce } from '../test-utils/fetchMock';
+import { mockFetchOnce, mockFetchByUrl } from '../test-utils/fetchMock';
 
 function baseSettings(overrides: Partial<ClientSettings> = {}): ClientSettings {
   return {
@@ -94,7 +94,13 @@ describe('PasswordForm', () => {
   });
 
   it('calls onSuccess when server returns empty errors array', async () => {
-    mockFetchOnce({ errors: [] });
+    // Route submit -> empty-errors success; fallback handles debounced HIBP
+    // pre-call (useHibpCheck fires on new-password entry; on CI timing it can
+    // consume a single mockFetchOnce before submit reaches the network).
+    mockFetchByUrl(
+      { '/api/password': { body: { errors: [] } } },
+      { default: { body: '', init: { status: 200 } } },
+    );
     const user = userEvent.setup();
     const { onSuccess } = renderForm();
 
@@ -110,9 +116,20 @@ describe('PasswordForm', () => {
   });
 
   it('surfaces InvalidCredentials error on CurrentPassword field', async () => {
-    mockFetchOnce({
-      errors: [{ errorCode: ApiErrorCode.InvalidCredentials, fieldName: 'CurrentPassword' }],
-    });
+    // See sibling test comment — route submit explicitly so HIBP pre-call
+    // (debounced from useHibpCheck on new-password entry) can't steal the mock.
+    mockFetchByUrl(
+      {
+        '/api/password': {
+          body: {
+            errors: [
+              { errorCode: ApiErrorCode.InvalidCredentials, fieldName: 'CurrentPassword' },
+            ],
+          },
+        },
+      },
+      { default: { body: '', init: { status: 200 } } },
+    );
     const user = userEvent.setup();
     const { onSuccess } = renderForm();
 
