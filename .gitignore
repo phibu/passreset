@@ -1,3 +1,6 @@
+# ── Git worktrees (project-local feature branches) ──────────────────────────
+.worktrees/
+
 # ── .NET build output ────────────────────────────────────────────────────────
 bin/
 obj/
