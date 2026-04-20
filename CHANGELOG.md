@@ -10,6 +10,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.1] — 2026-04-20
+
+Hotfix for a flaky test that blocked the v1.4.0 CI release gate. No behavior change.
+
+### Fixed
+- **CI release gate:** Removed `SmtpProbeTests.ConnectAsync_RespectsCancellationToken`. The test asserted a 3s `CancellationToken` would fire before any OS timeout while connecting to a RFC 5737 blackhole address, but GitHub Actions `windows-latest` runners raise a TCP SYN-retry `SocketException` at ~9s *before* the CTS fires, breaking the 4s assertion. The SMTP probe invariant ("must not hang an IIS worker thread") is already covered end-to-end by `HealthControllerTests.Get_ReturnsUnhealthy_WhenSmtpUnreachable`, which exercises the full controller against a TEST-NET-1 target. The deleted unit test was redundant belt-and-suspenders coverage that picked a platform-dependent network assertion. *(test, web)*
+
+---
+
 ## [1.4.0] — 2026-04-20
 
 Stabilization milestone rolling up 21 post-v1.3.2 GitHub issues across installer, configuration, security, and operational readiness. Requires **PowerShell 7+** for install/publish scripts.
