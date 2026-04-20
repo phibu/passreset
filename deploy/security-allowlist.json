@@ -1,0 +1,4 @@
+{
+  "_readme": "STAB-020 allowlist. Suppress documented npm/NuGet advisories. Every entry expires in <=90 days and must be re-reviewed. Scope is 'npm' or 'nuget'. CI reads this file; expired entries fail the build.",
+  "advisories": []
+}
