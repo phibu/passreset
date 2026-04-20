@@ -543,8 +543,26 @@ if (-not (Test-Path $brandPath)) {
     Write-Ok "Preserving existing brand directory $brandPath"
 }
 
-# Stop the site/pool before copying so locked files are released
-Import-Module WebAdministration -ErrorAction SilentlyContinue
+# Stop the site/pool before copying so locked files are released.
+# Fail loudly if the WebAdministration module can't load — otherwise downstream
+# uses of the IIS:\ drive fault with a cryptic "drive not found" error (the
+# exception formatter renders the missing drive name as "ISS", which looks like
+# a typo but is actually Windows truncation of the word "IIS:" in its display).
+try {
+    Import-Module WebAdministration -ErrorAction Stop
+} catch {
+    Abort @"
+Failed to load the WebAdministration PowerShell module — the IIS:\ drive
+won't be available so this installer cannot configure AppPools or Sites.
+
+Cause: IIS Management Scripts and Tools role is not installed on this host.
+
+Fix: run as Administrator and enable the feature, then re-run this installer:
+  dism.exe /online /enable-feature /featurename:IIS-ManagementScriptingTools /all
+
+Underlying error: $($_.Exception.Message)
+"@
+}
 
 $poolExists = Test-Path "IIS:\AppPools\$AppPoolName"
 $siteExists = Test-Path "IIS:\Sites\$SiteName"
