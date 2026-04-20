@@ -686,3 +686,42 @@ into instead of summarizing-and-stopping.
 **Caveat:** If the next step would require a non-delegated decision
 (e.g. autonomous:false plan, destructive action, cross-AI review),
 stop at that decision point. Otherwise chain forward.
+
+---
+
+## 2026-04-20 — Silent orchestrator stops (missing text between tool calls)
+
+**Observed in:** This session (`/gsd-execute-phase 10` + finalization).
+Several turns ended with ONLY a tool result and no user-facing text, forcing
+the user to type "continue" repeatedly. Examples:
+- After `Bash` returned `git status` output — I stopped with no narration.
+- After reading a file — stopped without announcing next action.
+- After a subagent returned mid-task — sometimes no bridging sentence.
+
+**Root cause:** Treating a tool result as a natural turn boundary.
+The harness does not auto-advance; if my response ends after a tool call
+without emitted text, the user sees a dead turn and has to poke me.
+Tool results are NOT user-visible narration — only emitted text is.
+
+**The rule from the system prompt I'd been violating:**
+> "Assume users can't see most tool calls or thinking — only your text output.
+> Before your first tool call, state in one sentence what you're about to do.
+> While working, give short updates at key moments. Silent is not [good]."
+
+**Rules for me:**
+- **Every assistant turn must emit at least one user-visible sentence** —
+  even if it's just "Running tests now." or "Found it — patching."
+- Before a multi-tool batch, state the intent in one sentence.
+- After a tool result that completes a phase of work, emit a one-sentence
+  transition ("Done. Next: X.") before the next tool call OR before stopping.
+- Never end a turn on a raw tool result with zero accompanying text.
+- If I genuinely need user input, ASK explicitly with `AskUserQuestion` or
+  a direct question in prose — don't stop silently hoping they'll prompt me.
+- When chaining tools across turns (background, long-running), emit a
+  status sentence at each wake to confirm I'm still on-task.
+
+**Detection heuristic for myself mid-turn:** Before submitting a response,
+scan: "Does this turn contain user-facing prose? If no, add a sentence."
+
+**Applied immediately:** The finalize-v1.4 workflow has ~6 more steps;
+every one gets a one-liner preface so the user never has to ask "continue".
