@@ -8,7 +8,7 @@ namespace PassReset.Web.Services;
 /// Background service that runs daily and sends password-expiry reminder emails
 /// to members of AllowedAdGroups whose passwords are approaching expiry.
 /// </summary>
-internal sealed class PasswordExpiryNotificationService : BackgroundService
+internal sealed class PasswordExpiryNotificationService : BackgroundService, IExpiryServiceDiagnostics
 {
     private readonly IServiceProvider _services;
     private readonly PasswordExpiryNotificationSettings _notifSettings;
@@ -22,6 +22,9 @@ internal sealed class PasswordExpiryNotificationService : BackgroundService
     /// </summary>
     private static readonly SemaphoreSlim _groupQueryThrottle = new(5, 5);
 
+    // Atomic tick storage — DateTimeOffset encoded as long UTC ticks (0 = never run).
+    private long _lastTickTicks;
+
     public PasswordExpiryNotificationService(
         IServiceProvider services,
         IOptions<PasswordExpiryNotificationSettings> notifSettings,
@@ -31,6 +34,19 @@ internal sealed class PasswordExpiryNotificationService : BackgroundService
         _notifSettings = notifSettings.Value;
         _logger        = logger;
     }
+
+    // ─── IExpiryServiceDiagnostics ────────────────────────────────────────────────
+    // Atomic reads — no lock needed. Interlocked.Read guarantees 64-bit torn-free
+    // read on all platforms including 32-bit.
+    public bool IsEnabled => _notifSettings.Enabled;
+    public DateTimeOffset? LastTickUtc =>
+        Interlocked.Read(ref _lastTickTicks) == 0
+            ? (DateTimeOffset?)null
+            : new DateTimeOffset(Interlocked.Read(ref _lastTickTicks), TimeSpan.Zero);
+
+    /// <summary>Test-only helper — sets the last-tick timestamp via Interlocked.Exchange.</summary>
+    internal void SetLastTickForTests(DateTimeOffset ts) =>
+        Interlocked.Exchange(ref _lastTickTicks, ts.UtcTicks);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -49,6 +65,12 @@ internal sealed class PasswordExpiryNotificationService : BackgroundService
             _notifiedToday.Clear();
 
             await RunNotificationsAsync(stoppingToken);
+
+            // Record successful tick for diagnostics. Atomic so HealthController reads
+            // are torn-free even on 32-bit hosts. Exceptions inside RunNotificationsAsync
+            // are swallowed internally (see try/catch there) so reaching this line
+            // indicates the tick completed (even if individual users errored).
+            Interlocked.Exchange(ref _lastTickTicks, DateTimeOffset.UtcNow.UtcTicks);
         }
     }
 
