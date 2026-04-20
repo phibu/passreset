@@ -549,7 +549,12 @@ if (-not (Test-Path $brandPath)) {
 # exception formatter renders the missing drive name as "ISS", which looks like
 # a typo but is actually Windows truncation of the word "IIS:" in its display).
 try {
-    Import-Module WebAdministration -ErrorAction Stop
+    # -SkipEditionCheck imports the Desktop-edition WebAdministration module
+    # directly into PS 7 (Core) instead of routing through the WinPSCompat
+    # remoting session. Without it, all IIS:\ drive operations round-trip
+    # through a Windows PowerShell child process, producing deserialized
+    # proxy objects and a noisy warning on every install.
+    Import-Module WebAdministration -SkipEditionCheck -ErrorAction Stop
 } catch {
     Abort @"
 Failed to load the WebAdministration PowerShell module — the IIS:\ drive
