@@ -10,6 +10,17 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.2] — 2026-04-20
+
+Installer hotfix rolling up four PS 7 compatibility issues that blocked `Install-PassReset.ps1` on clean Windows Server hosts. No behavior change in the running application.
+
+### Fixed
+- **Cryptic "drive IIS not found" error:** `Import-Module WebAdministration -ErrorAction SilentlyContinue` silently swallowed failures, letting the installer stumble into a `Cannot find drive. A drive with the name "IIS" does not exist` error ~200 lines later (Windows' exception formatter renders the drive name as `"ISS"`, looking like a typo). Replaced with `-ErrorAction Stop` inside a try/catch that aborts with a clear "run DISM to install IIS Management Scripts and Tools" message. *(installer)*
+- **PS 7 WinPSCompat warning noise:** Every install now suppresses the `Module WebAdministration is loaded in Windows PowerShell using WinPSCompatSession remoting session…` warning via `-WarningAction SilentlyContinue`. The warning is informational only; the WinPSCompat path is the only way PS 7 can load the legacy PSSnapIn-based `WebAdministration` module. *(installer)*
+- **IIS:\ PSDrive missing even with IIS Management Scripts and Tools installed:** On PS 7, `Import-Module WebAdministration` registers the `IIS:\` PSDrive *inside* the WinPSCompat remoting session, not in the local PS 7 session where `Set-ItemProperty` runs. Downstream calls failed with `Cannot find drive`. Installer now detects the missing drive with `Get-PSDrive` and explicitly registers it via `New-PSDrive -PSProvider WebAdministration -Root 'MACHINE/WEBROOT/APPHOST' -Scope Script`. If registration fails, abort with actionable diagnostics including a PS 5.1 fallback recommendation. *(installer)*
+
+---
+
 ## [1.4.1] — 2026-04-20
 
 Hotfix for a flaky test that blocked the v1.4.0 CI release gate. No behavior change.
