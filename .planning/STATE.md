@@ -24,19 +24,19 @@ progress:
 - **Current milestone:** v1.4.0 (Stabilization) — active
 - **Queued milestone:** v2.0.0 (Platform evolution)
 - **Milestone chain:** v1.2.3 ✅ → v1.3.0 ✅ → v1.3.1 ✅ → v1.3.2 ✅ → v1.4.0 (active) → v2.0.0 (queued)
-- **Current focus:** Phase 10 — operational-readiness
+- **Current focus:** v1.4.0 ready to ship — all 4 phases code-complete
 
 ## Current Position
 
-Phase: 10 (operational-readiness) — EXECUTING
-Plan: 2 of 4
-Milestone: v1.4.0 — 3/4 phases complete (7 ✓, 8 ✓, 9 ✓)
-Next: Phase 10 (Operational Readiness, STAB-018..021) — needs `/gsd-discuss-phase 10` then `/gsd-plan-phase 10`
+Phase: 10 (operational-readiness) — CODE-COMPLETE (STAB-019 Task 3 operator UAT deferred)
+Plans: 4 of 4 complete
+Milestone: v1.4.0 — 4/4 phases complete (7 ✓, 8 ✓, 9 ✓, 10 ✓)
+Next: operator UAT on Windows/IIS host for `deploy/HUMAN-UAT-10-02.md`, then tag v1.4.0
 
-- **Phase:** 10 (not started)
-- **Next:** `/gsd-discuss-phase 10` to shape the operational-readiness approach
-- **Status:** Ready to execute
-- **Progress:** [█████████░] 86%
+- **Phase:** 10 (code-complete, awaiting operator UAT)
+- **Next:** Run `deploy/HUMAN-UAT-10-02.md` scenarios A–D on a real host OR defer + tag v1.4.0
+- **Status:** Ready to ship modulo one deferred human-verify checkpoint
+- **Progress:** [██████████] 100%
 
 ## Milestone Map
 
@@ -46,7 +46,7 @@ Next: Phase 10 (Operational Readiness, STAB-018..021) — needs `/gsd-discuss-ph
 | v1.3.0 | 02, 03 | ✅ Shipped 2026-04-15 (archived) |
 | v1.3.1 | 07 (legacy) | ✅ Shipped 2026-04-15 (archived) |
 | v1.3.2 | 07 (code review fix rollup) | ✅ Shipped 2026-04-16 (archived) |
-| v1.4.0 | 7 ✓, 8 ✓, 9 ✓, 10 pending | Active — 3/4 phases complete |
+| v1.4.0 | 7 ✓, 8 ✓, 9 ✓, 10 ✓ (UAT deferred) | Active — 4/4 phases code-complete |
 | v2.0.0 | 11, 12, 13 | Queued — 0/3 phases started |
 
 > Note: legacy phase 07 numbering belongs to the archived v1.3.1/v1.3.2 milestones. The v1.4.0 chain restarts the active phase numbering at 7 going forward; archived directories are not affected.
@@ -75,8 +75,7 @@ Next: Phase 10 (Operational Readiness, STAB-018..021) — needs `/gsd-discuss-ph
 
 ### Active TODOs
 
-- `/gsd-discuss-phase 10` — shape the operational-readiness approach (STAB-018..021)
-- `/gsd-plan-phase 10` — produce plans under Phase 10
+- Phase 10-02 Task 3 operator UAT — run `deploy/HUMAN-UAT-10-02.md` scenarios A–D on Windows/IIS/AD host, or defer per Phase 7 precedent
 - Phase 7 human UAT (5 operator items) — needs physical IIS host when available
 - Phase 9 human-verify — operator review of 09-05 doc wording before v1.4.0 tag
 - Phase 9 — 7 Info-level findings remain in 09-REVIEW.md (backlog)

@@ -20,7 +20,7 @@ Source: 21 GitHub issues (#19–#39) opened 2026-04-16. Must ship before v2.0 wo
 - [x] **Phase 7: Installer & Deployment Fixes** — STAB-001..006 (gh#19, #20, #21, #23, #36, #39) ✓ 2026-04-16 (human UAT pending)
 - [ ] **Phase 8: Configuration Schema & Sync** — STAB-007..012 (gh#22, #24, #25, #26, #27, #37)
 - [ ] **Phase 9: Security Hardening** — STAB-013..017 (gh#28, #29, #30, #32, #33)
-- [ ] **Phase 10: Operational Readiness** — STAB-018..021 (gh#31, #34, #35, #38)
+- [x] **Phase 10: Operational Readiness** — STAB-018..021 (gh#31, #34, #35, #38) ✓ 2026-04-20 (STAB-019 operator UAT deferred)
 
 ## Queued Phases — v2.0.0 (Platform evolution)
 
@@ -100,10 +100,10 @@ Source: 21 GitHub issues (#19–#39) opened 2026-04-16. Must ship before v2.0 wo
   3. CI runs `npm audit` + `dotnet list package --vulnerable` on every push/PR; fails on high-severity findings (gh#35)
   4. Effective AD password policy (or clear summary) is displayed in the UI before the user attempts a change (gh#38)
 **Plans**: 4 plans (sequential inline execution per D-20)
-  - [x] 10-01-PLAN.md — STAB-018 /api/health enrichment (nested AD/SMTP/ExpiryService checks + ConnectAsync timeouts)
-  - [ ] 10-02-PLAN.md — STAB-019 Installer post-deploy /api/health + /api/password verification + -SkipHealthCheck
-  - [ ] 10-03-PLAN.md — STAB-020 CI security-audit job (npm audit + dotnet --vulnerable) + allowlist
-  - [ ] 10-04-PLAN.md — STAB-021 password policy panel visible above Username by default
+  - [x] 10-01-PLAN.md — STAB-018 /api/health enrichment (nested AD/SMTP/ExpiryService checks + ConnectAsync timeouts) ✓ 2026-04-20
+  - [x] 10-02-PLAN.md — STAB-019 Installer post-deploy /api/health + /api/password verification + -SkipHealthCheck ✓ 2026-04-20 (Tasks 1+2; Task 3 operator UAT deferred)
+  - [x] 10-03-PLAN.md — STAB-020 CI security-audit job (npm audit + dotnet --vulnerable) + allowlist ✓ 2026-04-20
+  - [x] 10-04-PLAN.md — STAB-021 password policy panel visible above Username by default ✓ 2026-04-20
 
 ### Phase 11: v2.0 Multi-OS PoC
 **Goal**: A documented, evidence-backed decision on cross-platform viability, validated by a working Docker PoC against a test AD
