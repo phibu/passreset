@@ -128,7 +128,7 @@ public sealed class LdapPasswordChangeProvider : IPasswordChangeProvider
                 _logger.LogWarning(
                     "ModifyResponse rejected: ResultCode={ResultCode} extendedError=0x{Extended:X8} mapped={Mapped}",
                     response.ResultCode, extended, mapped);
-                return new ApiErrorItem(mapped, MapperMessageFor(mapped));
+                return new ApiErrorItem(mapped, MessageFor(mapped));
             }
 
             return null;
@@ -140,7 +140,7 @@ public sealed class LdapPasswordChangeProvider : IPasswordChangeProvider
             _logger.LogWarning(ex,
                 "DirectoryOperationException on Modify: ResultCode={ResultCode} extendedError=0x{Extended:X8} mapped={Mapped}",
                 ex.Response?.ResultCode, extended, mapped);
-            return new ApiErrorItem(mapped, MapperMessageFor(mapped));
+            return new ApiErrorItem(mapped, MessageFor(mapped));
         }
         catch (LdapException ex)
         {
@@ -154,6 +154,17 @@ public sealed class LdapPasswordChangeProvider : IPasswordChangeProvider
     {
         // AD atomic change-password pattern: single ModifyRequest with Delete(old) + Add(new)
         // on unicodePwd. The value must be UTF-16LE-encoded and wrapped in literal quote chars.
+        //
+        // Memory hygiene note: these byte buffers contain the cleartext passwords as UTF-16
+        // and CANNOT be zeroed here. DirectoryAttributeModification derives from
+        // DirectoryAttribute, which derives from CollectionBase and stores items in an
+        // ArrayList of object references. The Add(byte[]) overload boxes and stores the
+        // array reference directly — it does NOT clone. Zeroing these buffers before
+        // session.Modify(...) serializes the request would corrupt the wire payload.
+        // The caller is expected to invoke Modify synchronously and not retain the request
+        // beyond that call; the buffers become eligible for GC once the request goes out
+        // of scope. (System.DirectoryServices.Protocols does not expose a clear-after-send
+        // API — true zeroization would require avoiding managed string/byte[] entirely.)
         var oldBytes = System.Text.Encoding.Unicode.GetBytes($"\"{current}\"");
         var newBytes = System.Text.Encoding.Unicode.GetBytes($"\"{next}\"");
 
@@ -184,7 +195,7 @@ public sealed class LdapPasswordChangeProvider : IPasswordChangeProvider
         return new ModifyRequest(userDn, del, add);
     }
 
-    private static string MapperMessageFor(ApiErrorCode code) => code switch
+    private static string MessageFor(ApiErrorCode code) => code switch
     {
         ApiErrorCode.InvalidCredentials          => "Current password is incorrect.",
         ApiErrorCode.UserNotFound                => "User not found in directory.",
@@ -192,7 +203,10 @@ public sealed class LdapPasswordChangeProvider : IPasswordChangeProvider
         ApiErrorCode.ComplexPassword             => "The new password does not meet domain complexity requirements.",
         ApiErrorCode.PortalLockout               => "Account is locked out. Contact your administrator.",
         ApiErrorCode.PasswordTooRecentlyChanged  => "Password was changed too recently; please wait before trying again.",
-        _                                        => "Unexpected error.",
+        // Fail loud: any unmapped code from LdapErrorMapping.Map is a bug — we want it
+        // surfaced in development and observable in logs, not silently masked.
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(code), code, "No user-facing message defined for this error code"),
     };
 
     public string? GetUserEmail(string username)

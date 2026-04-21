@@ -28,6 +28,13 @@ public sealed class FakeLdapSession : ILdapSession
     public int ModifyCallCount { get; private set; }
     public int BindCallCount { get; private set; }
 
+    /// <summary>
+    /// The most recent <see cref="ModifyRequest"/> passed to <see cref="Modify"/>.
+    /// Lets tests assert on the structure (operations, attribute names, byte values)
+    /// of the AD atomic-change-password protocol payload.
+    /// </summary>
+    public ModifyRequest? LastModifyRequest { get; private set; }
+
     public Exception? BindThrows { get; set; }
 
     public void Bind()
@@ -82,6 +89,7 @@ public sealed class FakeLdapSession : ILdapSession
     public ModifyResponse Modify(ModifyRequest request)
     {
         ModifyCallCount++;
+        LastModifyRequest = request;
         foreach (var rule in _modifyRules)
         {
             if (request.DistinguishedName.Contains(rule.DnContains, StringComparison.OrdinalIgnoreCase))

@@ -130,7 +130,7 @@ public class LdapPasswordChangeProviderTests
     }
 
     [Fact]
-    public async Task PerformPasswordChangeAsync_HappyPath_ReturnsNull()
+    public async Task PerformPasswordChangeAsync_HappyPath_EmitsAdAtomicChangePasswordRequest()
     {
         var (sut, fake) = Build();
         fake.OnSearch(
@@ -146,6 +146,29 @@ public class LdapPasswordChangeProviderTests
         Assert.Null(result);
         Assert.Equal(1, fake.BindCallCount);
         Assert.Equal(1, fake.ModifyCallCount);
+
+        // The AD atomic change-password protocol requires a single ModifyRequest with two
+        // ordered modifications: Delete(unicodePwd, "<old>") then Add(unicodePwd, "<new>"),
+        // both UTF-16LE encoded with literal quote chars wrapping the password value.
+        // A regression that swaps order, flips operations, or changes the encoding must fail here.
+        var modify = fake.LastModifyRequest;
+        Assert.NotNull(modify);
+        Assert.Equal("CN=Alice,OU=Users,DC=corp,DC=example,DC=com", modify!.DistinguishedName);
+        Assert.Equal(2, modify.Modifications.Count);
+
+        var del = modify.Modifications[0];
+        Assert.Equal(DirectoryAttributeOperation.Delete, del.Operation);
+        Assert.Equal("unicodePwd", del.Name);
+        var delValue = Assert.Single(del);
+        var delBytes = Assert.IsType<byte[]>(delValue);
+        Assert.Equal("\"OldPass1!\"", System.Text.Encoding.Unicode.GetString(delBytes));
+
+        var add = modify.Modifications[1];
+        Assert.Equal(DirectoryAttributeOperation.Add, add.Operation);
+        Assert.Equal("unicodePwd", add.Name);
+        var addValue = Assert.Single(add);
+        var addBytes = Assert.IsType<byte[]>(addValue);
+        Assert.Equal("\"NewPass1!\"", System.Text.Encoding.Unicode.GetString(addBytes));
     }
 
     [Fact]
