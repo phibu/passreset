@@ -29,6 +29,9 @@ First v2.0 alpha. Introduces a cross-platform `LdapPasswordChangeProvider` backe
 - **Windows provider unchanged.** `PassReset.PasswordProvider` (net10.0-windows) is byte-for-byte identical to v1.4.2. Zero regression for Windows operators.
 - **`UserCannotChangePassword` ACE check** is deferred on the LDAP provider. AD's server-side modify rejection provides enforcement without the ACE check; the error message is less specific on Linux but behavior is correct.
 
+### Known Limitations
+- **Linux deployment not yet supported in this alpha.** Despite the LDAP provider being cross-platform, the ASP.NET Core host (`PassReset.Web`) still depends on `System.DirectoryServices.AccountManagement` via `HealthController.cs` and will not compile on a `net10.0` (non-Windows) target. `PassReset.Web` currently uses a conditional TFM (`net10.0-windows` on Windows, `net10.0` elsewhere) but the Linux build path is deferred to a follow-up phase. **Current alpha audience: Windows operators who want to test the LDAP provider pathway before the beta.**
+
 ### Breaking
 - None for Windows upgraders running with default config. (Schema adds `ProviderMode` with default `Auto`; Windows stays on Windows provider.)
 

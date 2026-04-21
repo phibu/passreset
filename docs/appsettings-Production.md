@@ -232,6 +232,8 @@ When PassReset runs on Linux (or with `ProviderMode: "Ldap"` on Windows), it sel
 
 > Set `ProviderMode: "Ldap"` on Windows only for parity testing. In production on Windows, leave it at `Auto` — the Windows provider remains byte-for-byte identical to v1.4.2.
 
+> Changing `ProviderMode` requires an app restart — provider selection is captured once at startup and not re-evaluated on `IOptionsMonitor` reloads.
+
 ### NotificationEmailStrategy values
 
 | Value | Address resolved as | Example |

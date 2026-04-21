@@ -79,6 +79,11 @@ public class PasswordChangeOptions : IAppSettings
     /// Warning: <c>SetPassword</c> bypasses AD password history enforcement.
     /// Default: false.
     /// </summary>
+    /// <remarks>
+    /// Windows provider only. The LDAP provider ignores this flag — AD's server-side enforcement
+    /// is authoritative, and no equivalent COMException fallback exists in
+    /// System.DirectoryServices.Protocols.
+    /// </remarks>
     public bool AllowSetPasswordFallback { get; set; }
 
     /// <summary>
