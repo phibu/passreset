@@ -2,6 +2,8 @@
 
 Track corrections and mistake patterns. Review at session start.
 
+> **Note (2026-04-21):** The GSD Toolkit was retired from this repo on 2026-04-21. Lessons below that reference `gsd-executor`, `/gsd-*` commands, or specific GSD plan workflows are preserved verbatim because they document real incidents and the rules they produced still apply (transposed to superpowers skills where the shape is the same — e.g. "gsd-executor subagent stops" generalizes to "any subagent stops").
+
 ---
 
 ## 2026-04-16 — gsd-executor subagents return prematurely mid-task
@@ -725,3 +727,64 @@ scan: "Does this turn contain user-facing prose? If no, add a sentence."
 
 **Applied immediately:** The finalize-v1.4 workflow has ~6 more steps;
 every one gets a one-liner preface so the user never has to ask "continue".
+
+---
+
+## 2026-04-21 — Failure recovery: tool-use response ending on raw result is a bug (seventeenth occurrence)
+
+**Observed in:** Phase 11 CI debug — dispatched `Bash` calls to read GitHub
+Actions logs while diagnosing integration-tests-ldap failures. On THREE
+separate turns, the response ended with the raw `Bash` tool result (log
+excerpt, JSON blob) and no user-visible text. User had to type "continue"
+each time. This violates lesson 16 ("2026-04-20 Silent orchestrator stops")
+which I added less than a day ago.
+
+**Specific failure mode this time:** Long log output from `gh api ... logs`
+or `gh run view` produces 20-50 line tool results. After such output, I was
+treating the log as "the answer" and ending the turn without synthesis. The
+user sees only the raw log and has to prompt me to interpret it.
+
+**Why the prior lesson didn't stick:**
+Lesson 16 said "every turn must emit at least one user-visible sentence."
+That's true but insufficient — it doesn't tell me WHEN to produce the
+sentence. My failure pattern is: I call the tool, the tool returns, the
+output is informative, and I internally treat "received informative output"
+as "user now has the answer" — but the user can't parse a 50-line log blob.
+
+**Sharper rule that addresses this specific failure:**
+
+> **After any tool result longer than ~5 lines, the response MUST include
+> a prose synthesis of what the result means — before the next tool call
+> OR before ending the turn.** A raw log dump is not a synthesis. A JSON
+> blob is not a synthesis. The user reads prose; tool output is my working
+> memory.
+
+**Synthesis template for log/diff output:**
+> "[1 sentence: what the tool told me]. [1 sentence: what it means for the
+> task]. [1 sentence: next action OR a question requiring user input]."
+
+**Example of the bug (what I just did):**
+```
+Bash: gh api .../logs | grep error
+Result: <30 lines of errors>
+[END OF TURN with no text]
+```
+
+**Example of the fix:**
+```
+Bash: gh api .../logs | grep error
+Result: <30 lines of errors>
+Text: "PASSRESET_TEST_OLD_PASSWORD is empty in the log — the secret didn't
+take. I'll verify via [next step]."
+```
+
+**Detection heuristic before emitting end-of-turn:** If my final tool call
+produced > 5 lines of output, scroll up: is there prose AFTER that output
+and BEFORE the turn ends? If no → add a synthesis sentence.
+
+**Accountability:** This is the 17th occurrence of a stop-failure variant.
+At this count, prose rules empirically don't fix the behavior. A structural
+fix (CLAUDE.md directive, hooks-based guard) is warranted. For this session,
+my commitment: every remaining turn in Phase 11 CI debug includes a
+synthesis sentence after any tool result > 5 lines, even when the output
+seems obvious to me.
