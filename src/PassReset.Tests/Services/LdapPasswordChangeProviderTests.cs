@@ -499,6 +499,24 @@ public class LdapPasswordChangeProviderTests
     }
 
     [Fact]
+    public void GetUserEmail_FoundButNoMail_ReturnsNullWithoutFallback()
+    {
+        // First match wins — once an entry is found via any AllowedUsernameAttributes filter,
+        // we must NOT fall through to the remaining attribute searches. Confirms there is
+        // exactly one search call and that UPN/mail rules are never invoked (FakeLdapSession
+        // throws on unmatched filters, so omitting them asserts they aren't called).
+        var (sut, fake) = Build();
+        fake.OnSearch(
+            "(sAMAccountName=alice)",
+            MakeResponse(MakeEntry("CN=Alice,OU=Users,DC=corp,DC=example,DC=com")));
+
+        var email = sut.GetUserEmail("alice");
+
+        Assert.Null(email);
+        Assert.Equal(1, fake.SearchCallCount);
+    }
+
+    [Fact]
     public void GetDomainMaxPasswordAge_ReadsRootDseMaxPwdAge()
     {
         var (sut, fake) = Build();

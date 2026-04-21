@@ -488,8 +488,15 @@ public sealed class LdapPasswordChangeProvider : IPasswordChangeProvider
                 var resp = session.Search(request);
                 if (resp.Entries.Count == 0) continue;
 
+                // First match wins. If this entry has no mail, do NOT fall through to other
+                // attribute searches — the user exists, they simply have no mail attribute.
+                // Falling through would mask that diagnostic and trigger extra LDAP roundtrips.
                 var mail = GetFirstStringValueOrNull(resp.Entries[0], LdapAttributeNames.Mail);
                 if (!string.IsNullOrWhiteSpace(mail)) return mail;
+
+                _logger.LogInformation(
+                    "User {Username} found via {Attribute} but has no mail attribute", username, attr);
+                return null;
             }
             return null;
         }
@@ -515,7 +522,6 @@ public sealed class LdapPasswordChangeProvider : IPasswordChangeProvider
         // the lookup inside would mean a partial-iteration consumer leaves the session open
         // until GC. Keeping the resolve outside makes the empty-result path trivially safe.
         string? groupDn;
-        try
         {
             using var lookupSession = _sessionFactory();
             try { lookupSession.Bind(); }
@@ -526,7 +532,6 @@ public sealed class LdapPasswordChangeProvider : IPasswordChangeProvider
             }
             groupDn = ResolveGroupDn(lookupSession, groupName);
         }
-        finally { /* lookupSession disposed by using above */ }
 
         if (groupDn is null)
         {
@@ -544,8 +549,7 @@ public sealed class LdapPasswordChangeProvider : IPasswordChangeProvider
         try
         {
             session.Bind();
-            // 1.2.840.113556.1.4.1941 = LDAP_MATCHING_RULE_IN_CHAIN — nested membership.
-            var filter = $"(memberOf:1.2.840.113556.1.4.1941:={EscapeLdapFilterValue(groupDn)})";
+            var filter = $"(memberOf:{LdapMatchingRules.InChain}:={EscapeLdapFilterValue(groupDn)})";
             var req = new SearchRequest(
                 distinguishedName: _options.Value.BaseDn,
                 ldapFilter: filter,
