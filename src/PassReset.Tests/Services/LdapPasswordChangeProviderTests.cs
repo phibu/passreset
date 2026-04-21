@@ -239,6 +239,184 @@ public class LdapPasswordChangeProviderTests
         Assert.Equal(0, fake.ModifyCallCount);
     }
 
+    // ----- ExtractCommonName: RFC 4514 RDN escape handling -----------------------------------
+
+    [Theory]
+    [InlineData("CN=Foo,OU=Users,DC=corp,DC=example,DC=com", "Foo")]
+    [InlineData(@"CN=Doe\, John,OU=Users,DC=corp,DC=example,DC=com", "Doe, John")]
+    [InlineData(@"CN=Foo\\Bar,OU=Users,DC=corp,DC=example,DC=com", @"Foo\Bar")]
+    [InlineData("CN=Foo", "Foo")]
+    [InlineData("OU=Foo,DC=corp,DC=example,DC=com", null)]
+    [InlineData(@"CN=Smith\\\, Jr,OU=Users,DC=corp,DC=example,DC=com", @"Smith\, Jr")]
+    public void ExtractCommonName_HandlesRdnEscapesAndPrefixAbsence(string dn, string? expected)
+    {
+        var method = typeof(LdapPasswordChangeProvider).GetMethod(
+            "ExtractCommonName", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var actual = (string?)method.Invoke(null, new object?[] { dn });
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public async Task PerformPasswordChangeAsync_GroupReadFails_WithRestrictedConfigured_ReturnsChangeNotPermitted()
+    {
+        var opts = new PasswordChangeOptions
+        {
+            AllowedUsernameAttributes = new[] { "samaccountname" },
+            RestrictedAdGroups = new() { "Domain Admins" },
+            EnforceMinimumPasswordAge = false,
+            BaseDn = "DC=corp,DC=example,DC=com",
+            ServiceAccountDn = "CN=svc,DC=corp,DC=example,DC=com",
+            ServiceAccountPassword = "svcpw",
+            LdapHostnames = new[] { "dc01.corp.example.com" },
+            LdapPort = 636,
+        };
+        var (sut, fake) = Build(opts);
+
+        fake.OnSearch(
+            "(sAMAccountName=alice)",
+            MakeResponse(MakeEntry("CN=Alice,OU=Users,DC=corp,DC=example,DC=com")));
+        // Base-scope memberOf lookup throws — operator misconfiguration (no read on memberOf).
+        // With RestrictedAdGroups configured, the provider must fail closed.
+        fake.OnSearchThrow(
+            "(objectClass=user)",
+            new LdapException("Insufficient access rights"));
+
+        var result = await sut.PerformPasswordChangeAsync("alice", "OldPass1!", "NewPass1!");
+
+        Assert.NotNull(result);
+        Assert.Equal(ApiErrorCode.ChangeNotPermitted, result!.ErrorCode);
+        Assert.Equal(0, fake.ModifyCallCount);
+    }
+
+    [Fact]
+    public async Task PerformPasswordChangeAsync_AllowListMode_UserNotInAnyAllowedGroup_ReturnsChangeNotPermitted()
+    {
+        var opts = new PasswordChangeOptions
+        {
+            AllowedUsernameAttributes = new[] { "samaccountname" },
+            AllowedAdGroups = new() { "Helpdesk" },
+            EnforceMinimumPasswordAge = false,
+            BaseDn = "DC=corp,DC=example,DC=com",
+            ServiceAccountDn = "CN=svc,DC=corp,DC=example,DC=com",
+            ServiceAccountPassword = "svcpw",
+            LdapHostnames = new[] { "dc01.corp.example.com" },
+            LdapPort = 636,
+        };
+        var (sut, fake) = Build(opts);
+
+        fake.OnSearch(
+            "(sAMAccountName=alice)",
+            MakeResponse(MakeEntry("CN=Alice,OU=Users,DC=corp,DC=example,DC=com")));
+        fake.OnSearch(
+            "(objectClass=user)",
+            MakeResponse(MakeEntry("CN=Alice,OU=Users,DC=corp,DC=example,DC=com",
+                (LdapAttributeNames.MemberOf, "CN=Sales,CN=Users,DC=corp,DC=example,DC=com"))));
+
+        var result = await sut.PerformPasswordChangeAsync("alice", "OldPass1!", "NewPass1!");
+
+        Assert.NotNull(result);
+        Assert.Equal(ApiErrorCode.ChangeNotPermitted, result!.ErrorCode);
+        Assert.Equal(0, fake.ModifyCallCount);
+    }
+
+    [Fact]
+    public async Task PerformPasswordChangeAsync_PwdLastSetIsZero_SkipsMinPwdAgeCheck()
+    {
+        var opts = new PasswordChangeOptions
+        {
+            AllowedUsernameAttributes = new[] { "samaccountname" },
+            EnforceMinimumPasswordAge = true,
+            BaseDn = "DC=corp,DC=example,DC=com",
+            ServiceAccountDn = "CN=svc,DC=corp,DC=example,DC=com",
+            ServiceAccountPassword = "svcpw",
+            LdapHostnames = new[] { "dc01.corp.example.com" },
+            LdapPort = 636,
+        };
+        var (sut, fake) = Build(opts);
+
+        var minPwdAgeTicks = -TimeSpan.FromDays(1).Ticks;
+
+        fake.OnSearch(
+            "(sAMAccountName=alice)",
+            MakeResponse(MakeEntry("CN=Alice,OU=Users,DC=corp,DC=example,DC=com")));
+        // pwdLastSet=0 means "must change at next logon" — minPwdAge does not apply.
+        fake.OnSearch(
+            "(objectClass=user)",
+            MakeResponse(MakeEntry("CN=Alice,OU=Users,DC=corp,DC=example,DC=com",
+                (LdapAttributeNames.PwdLastSet, "0"))));
+        fake.RootDse = MakeEntry("",
+            (LdapAttributeNames.MinPwdAge, minPwdAgeTicks.ToString()));
+        fake.OnModify(
+            "CN=Alice,OU=Users,DC=corp,DC=example,DC=com",
+            MakeModifyResponse(ResultCode.Success));
+
+        var result = await sut.PerformPasswordChangeAsync("alice", "OldPass1!", "NewPass1!");
+
+        Assert.Null(result);
+        Assert.Equal(1, fake.ModifyCallCount);
+    }
+
+    [Fact]
+    public async Task PerformPasswordChangeAsync_NoRootDse_SkipsMinPwdAgeCheck()
+    {
+        var opts = new PasswordChangeOptions
+        {
+            AllowedUsernameAttributes = new[] { "samaccountname" },
+            EnforceMinimumPasswordAge = true,
+            BaseDn = "DC=corp,DC=example,DC=com",
+            ServiceAccountDn = "CN=svc,DC=corp,DC=example,DC=com",
+            ServiceAccountPassword = "svcpw",
+            LdapHostnames = new[] { "dc01.corp.example.com" },
+            LdapPort = 636,
+        };
+        var (sut, fake) = Build(opts);
+
+        fake.OnSearch(
+            "(sAMAccountName=alice)",
+            MakeResponse(MakeEntry("CN=Alice,OU=Users,DC=corp,DC=example,DC=com")));
+        fake.RootDse = null;  // simulates silent root-DSE failure
+        fake.OnModify(
+            "CN=Alice,OU=Users,DC=corp,DC=example,DC=com",
+            MakeModifyResponse(ResultCode.Success));
+
+        var result = await sut.PerformPasswordChangeAsync("alice", "OldPass1!", "NewPass1!");
+
+        Assert.Null(result);
+        Assert.Equal(1, fake.ModifyCallCount);
+    }
+
+    [Fact]
+    public async Task PerformPasswordChangeAsync_EnforceMinPwdAgeFalse_SkipsCheck()
+    {
+        var opts = new PasswordChangeOptions
+        {
+            AllowedUsernameAttributes = new[] { "samaccountname" },
+            EnforceMinimumPasswordAge = false,
+            BaseDn = "DC=corp,DC=example,DC=com",
+            ServiceAccountDn = "CN=svc,DC=corp,DC=example,DC=com",
+            ServiceAccountPassword = "svcpw",
+            LdapHostnames = new[] { "dc01.corp.example.com" },
+            LdapPort = 636,
+        };
+        var (sut, fake) = Build(opts);
+
+        fake.OnSearch(
+            "(sAMAccountName=alice)",
+            MakeResponse(MakeEntry("CN=Alice,OU=Users,DC=corp,DC=example,DC=com")));
+        // Intentionally NOT registering an "(objectClass=user)" rule — if PreCheckMinPwdAge
+        // ran, the FakeLdapSession would throw "no matching SearchRule". Asserting
+        // SearchCallCount==1 confirms only the user-DN lookup ran.
+        fake.OnModify(
+            "CN=Alice,OU=Users,DC=corp,DC=example,DC=com",
+            MakeModifyResponse(ResultCode.Success));
+
+        var result = await sut.PerformPasswordChangeAsync("alice", "OldPass1!", "NewPass1!");
+
+        Assert.Null(result);
+        Assert.Equal(1, fake.ModifyCallCount);
+        Assert.Equal(1, fake.SearchCallCount);
+    }
+
     [Fact]
     public async Task PerformPasswordChangeAsync_MinPwdAgeViolation_ReturnsPasswordTooRecent()
     {

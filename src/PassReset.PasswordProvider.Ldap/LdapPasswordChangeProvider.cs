@@ -13,6 +13,8 @@ namespace PassReset.PasswordProvider.Ldap;
 /// </summary>
 public sealed class LdapPasswordChangeProvider : IPasswordChangeProvider
 {
+    private const string UserObjectClassFilter = "(objectClass=user)";
+
     private readonly IOptions<PasswordChangeOptions> _options;
     private readonly ILogger<LdapPasswordChangeProvider> _logger;
     private readonly Func<ILdapSession> _sessionFactory;
@@ -225,6 +227,19 @@ public sealed class LdapPasswordChangeProvider : IPasswordChangeProvider
 
         var userGroups = ReadUserGroups(session, userDn);
 
+        // Fail closed: if memberOf could not be read, we cannot evaluate either policy
+        // safely. Deny-list bypass would be especially dangerous (user appears unrestricted
+        // when in reality the lookup itself failed). Allow-list mode is also denied since
+        // the user trivially appears in no allowed groups.
+        if (userGroups is null)
+        {
+            _logger.LogError(
+                "Change denied: memberOf lookup failed for {UserDn}; cannot evaluate group policy. " +
+                "Verify the service account has read access to the user's memberOf attribute.",
+                userDn);
+            return new ApiErrorItem(ApiErrorCode.ChangeNotPermitted, MessageFor(ApiErrorCode.ChangeNotPermitted));
+        }
+
         if (restricted.Count > 0)
         {
             foreach (var g in restricted)
@@ -254,23 +269,24 @@ public sealed class LdapPasswordChangeProvider : IPasswordChangeProvider
 
     /// <summary>
     /// Reads the <c>memberOf</c> attribute for <paramref name="userDn"/> and extracts the CN of each
-    /// distinguished name. Returns an empty list on any LDAP failure (the caller treats that as
-    /// "no group membership detected" — a deliberate fail-open, since the provider's group policy
-    /// is defense-in-depth on top of AD's own ACL enforcement).
+    /// distinguished name. Returns <c>null</c> on any LDAP failure so the caller can fail closed:
+    /// a silent empty list would let the deny-list path bypass <c>RestrictedAdGroups</c> when the
+    /// service account lacks read permission on <c>memberOf</c>. An empty (non-null) list means
+    /// "lookup succeeded, user has no group memberships."
     /// </summary>
-    private List<string> ReadUserGroups(ILdapSession session, string userDn)
+    private IReadOnlyList<string>? ReadUserGroups(ILdapSession session, string userDn)
     {
         try
         {
             var req = new SearchRequest(
                 distinguishedName: userDn,
-                ldapFilter: "(objectClass=user)",
+                ldapFilter: UserObjectClassFilter,
                 searchScope: SearchScope.Base,
                 attributeList: new[] { LdapAttributeNames.MemberOf });
             var resp = session.Search(req);
-            if (resp.Entries.Count == 0) return new List<string>();
+            if (resp.Entries.Count == 0) return Array.Empty<string>();
             var entry = resp.Entries[0];
-            if (!entry.Attributes.Contains(LdapAttributeNames.MemberOf)) return new List<string>();
+            if (!entry.Attributes.Contains(LdapAttributeNames.MemberOf)) return Array.Empty<string>();
             var attr = entry.Attributes[LdapAttributeNames.MemberOf];
             var result = new List<string>(attr.Count);
             foreach (var raw in attr.GetValues(typeof(string)))
@@ -285,24 +301,68 @@ public sealed class LdapPasswordChangeProvider : IPasswordChangeProvider
         }
         catch (Exception ex) when (ex is LdapException or DirectoryOperationException)
         {
-            _logger.LogWarning(ex, "memberOf lookup failed for {UserDn}; treating as no groups", userDn);
-            return new List<string>();
+            _logger.LogError(ex,
+                "memberOf lookup failed for {UserDn}. Group policy cannot be evaluated; " +
+                "the change request will be denied (fail-closed).", userDn);
+            return null;
         }
     }
 
     /// <summary>
     /// Extracts the Common Name from a DN, e.g. <c>CN=Domain Admins,CN=Users,DC=corp,DC=example,DC=com</c>
-    /// → <c>Domain Admins</c>. Returns null if the DN does not start with <c>CN=</c>.
+    /// → <c>Domain Admins</c>. Honours RFC 4514 RDN escaping: backslash-escaped commas
+    /// (<c>CN=Doe\, John,OU=…</c> → <c>Doe, John</c>) do not split the RDN, and escape sequences
+    /// in the resulting CN are unescaped (<c>\,</c> → <c>,</c>, <c>\\</c> → <c>\</c>, <c>\=</c> → <c>=</c>, etc.).
+    /// Returns <c>null</c> if the DN does not start with <c>CN=</c>.
     /// </summary>
     internal static string? ExtractCommonName(string distinguishedName)
     {
         if (string.IsNullOrEmpty(distinguishedName)) return null;
         const string prefix = "CN=";
         if (!distinguishedName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return null;
-        var commaIdx = distinguishedName.IndexOf(',', prefix.Length);
-        return commaIdx < 0
+
+        // Find the first UNESCAPED comma after the CN= prefix. A comma is unescaped when it is
+        // preceded by an even number (including zero) of backslashes — odd means the prior
+        // backslash is escaping the comma (RFC 4514 §2.4).
+        var commaIdx = -1;
+        for (var i = prefix.Length; i < distinguishedName.Length; i++)
+        {
+            if (distinguishedName[i] != ',') continue;
+            var backslashes = 0;
+            for (var j = i - 1; j >= prefix.Length && distinguishedName[j] == '\\'; j--) backslashes++;
+            if (backslashes % 2 == 0) { commaIdx = i; break; }
+        }
+
+        var raw = commaIdx < 0
             ? distinguishedName[prefix.Length..]
             : distinguishedName[prefix.Length..commaIdx];
+
+        return UnescapeRdnValue(raw);
+    }
+
+    /// <summary>
+    /// Reverses RFC 4514 RDN value escaping: a backslash followed by any character is collapsed
+    /// to that character (covers <c>\,</c>, <c>\\</c>, <c>\=</c>, <c>\+</c>, <c>\;</c>, <c>\&lt;</c>,
+    /// <c>\&gt;</c>, <c>\"</c>, leading/trailing <c>\#</c>/<c>\ </c>). Hex-encoded escapes
+    /// (<c>\NN</c>) are not currently un-encoded — AD's group DNs do not use them in practice.
+    /// </summary>
+    private static string UnescapeRdnValue(string value)
+    {
+        if (value.IndexOf('\\') < 0) return value;
+        var sb = new System.Text.StringBuilder(value.Length);
+        for (var i = 0; i < value.Length; i++)
+        {
+            if (value[i] == '\\' && i + 1 < value.Length)
+            {
+                sb.Append(value[i + 1]);
+                i++;
+            }
+            else
+            {
+                sb.Append(value[i]);
+            }
+        }
+        return sb.ToString();
     }
 
     /// <summary>
@@ -321,7 +381,7 @@ public sealed class LdapPasswordChangeProvider : IPasswordChangeProvider
         if (rootDse is null || !rootDse.Attributes.Contains(LdapAttributeNames.MinPwdAge))
             return null;
 
-        if (!long.TryParse(GetSingleString(rootDse, LdapAttributeNames.MinPwdAge), out var minPwdAgeRaw))
+        if (!long.TryParse(GetFirstStringValueOrNull(rootDse, LdapAttributeNames.MinPwdAge), out var minPwdAgeRaw))
             return null;
 
         // AD stores minPwdAge as a negative 100-ns interval (e.g. -864000000000 == 1 day).
@@ -335,14 +395,14 @@ public sealed class LdapPasswordChangeProvider : IPasswordChangeProvider
         {
             var req = new SearchRequest(
                 distinguishedName: userDn,
-                ldapFilter: "(objectClass=user)",
+                ldapFilter: UserObjectClassFilter,
                 searchScope: SearchScope.Base,
                 attributeList: new[] { LdapAttributeNames.PwdLastSet });
             var resp = session.Search(req);
             if (resp.Entries.Count == 0) return null;
             var entry = resp.Entries[0];
             if (!entry.Attributes.Contains(LdapAttributeNames.PwdLastSet)) return null;
-            if (!long.TryParse(GetSingleString(entry, LdapAttributeNames.PwdLastSet), out pwdLastSetRaw))
+            if (!long.TryParse(GetFirstStringValueOrNull(entry, LdapAttributeNames.PwdLastSet), out pwdLastSetRaw))
                 return null;
         }
         catch (Exception ex) when (ex is LdapException or DirectoryOperationException)
@@ -367,7 +427,7 @@ public sealed class LdapPasswordChangeProvider : IPasswordChangeProvider
         return null;
     }
 
-    private static string? GetSingleString(SearchResultEntry entry, string attributeName)
+    private static string? GetFirstStringValueOrNull(SearchResultEntry entry, string attributeName)
     {
         if (!entry.Attributes.Contains(attributeName)) return null;
         var values = entry.Attributes[attributeName].GetValues(typeof(string));
