@@ -1,3 +1,4 @@
+using System.DirectoryServices.Protocols;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PassReset.Common;
@@ -33,6 +34,63 @@ public sealed class LdapPasswordChangeProvider : IPasswordChangeProvider
                 _options.Value.ProviderMode);
         }
     }
+
+    /// <summary>
+    /// Resolves <paramref name="username"/> to its distinguished name by searching each
+    /// attribute in <see cref="PasswordChangeOptions.AllowedUsernameAttributes"/> in order.
+    /// Returns null when no attribute matches.
+    /// </summary>
+    internal async Task<string?> FindUserDnAsync(ILdapSession session, string username)
+    {
+        await Task.Yield();  // reserved for future async LDAP APIs
+        var opts = _options.Value;
+        foreach (var attr in opts.AllowedUsernameAttributes)
+        {
+            var ldapAttr = attr.ToLowerInvariant() switch
+            {
+                "samaccountname"    => LdapAttributeNames.SamAccountName,
+                "userprincipalname" => LdapAttributeNames.UserPrincipalName,
+                "mail"              => LdapAttributeNames.Mail,
+                _ => null,
+            };
+            if (ldapAttr is null)
+            {
+                _logger.LogWarning("Ignoring unknown AllowedUsernameAttributes entry: {Attr}", attr);
+                continue;
+            }
+
+            var filter = $"({ldapAttr}={EscapeLdapFilterValue(username)})";
+            var request = new SearchRequest(
+                distinguishedName: opts.BaseDn,
+                ldapFilter: filter,
+                searchScope: SearchScope.Subtree,
+                attributeList: new[] { LdapAttributeNames.DistinguishedName });
+            var response = session.Search(request);
+
+            if (response.Entries.Count == 1)
+                return response.Entries[0].DistinguishedName;
+
+            if (response.Entries.Count > 1)
+            {
+                _logger.LogWarning(
+                    "Ambiguous match: {Count} entries for {Attr}={Username}. Treating as not found.",
+                    response.Entries.Count, ldapAttr, username);
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// RFC 4515 LDAP filter value escaping: backslash, asterisk, parenthesis, NUL.
+    /// Prevents filter injection when user input is interpolated into a search filter.
+    /// </summary>
+    internal static string EscapeLdapFilterValue(string value) =>
+        value
+            .Replace("\\", @"\5c")
+            .Replace("*",  @"\2a")
+            .Replace("(",  @"\28")
+            .Replace(")",  @"\29")
+            .Replace("\0", @"\00");
 
     public Task<ApiErrorItem?> PerformPasswordChangeAsync(string username, string currentPassword, string newPassword)
         => throw new NotImplementedException();
