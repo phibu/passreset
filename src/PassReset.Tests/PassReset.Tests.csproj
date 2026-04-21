@@ -38,6 +38,7 @@
   <ItemGroup>
     <ProjectReference Include="..\PassReset.Common\PassReset.Common.csproj" />
     <ProjectReference Include="..\PassReset.PasswordProvider\PassReset.PasswordProvider.csproj" />
+    <ProjectReference Include="..\PassReset.PasswordProvider.Ldap\PassReset.PasswordProvider.Ldap.csproj" />
     <ProjectReference Include="..\PassReset.Web\PassReset.Web.csproj" />
   </ItemGroup>
 </Project>
