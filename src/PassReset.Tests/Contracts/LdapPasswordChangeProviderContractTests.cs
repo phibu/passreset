@@ -24,6 +24,11 @@ public sealed class LdapPasswordChangeProviderContractTests : IPasswordChangePro
     // surfaces this as ApiErrorCode.ComplexPassword regardless of ResultCode.
     private const string ComplexityErrorMessage = "0000052D: SvcErr: complexity";
 
+    // LDAP result code 49 == InvalidCredentials. The ResultCode enum on this TFM
+    // has no named value for it, so we cast from int. LdapErrorMapping keys off
+    // the integer code directly (see LdapErrorMapping.Map switch arm `49 => ...`).
+    private const int LdapInvalidCredentialsResultCode = 49;
+
     protected override IPasswordChangeProvider CreateProvider()
     {
         // Fallback for any search filter not explicitly seeded — mirrors a real AD
@@ -90,7 +95,7 @@ public sealed class LdapPasswordChangeProviderContractTests : IPasswordChangePro
             // from int — matches LdapErrorMapping which keys off the integer code).
             if (!string.Equals(oldPwd, currentPassword, StringComparison.Ordinal))
             {
-                return MakeModifyResponse((ResultCode)49, string.Empty);
+                return MakeModifyResponse((ResultCode)LdapInvalidCredentialsResultCode, string.Empty);
             }
 
             // New-password is weak / empty / identical-to-old → ComplexPassword.
@@ -114,9 +119,19 @@ public sealed class LdapPasswordChangeProviderContractTests : IPasswordChangePro
     // Pull the old and new cleartext passwords out of an AD atomic change-password
     // ModifyRequest. Mirrors the encoding emitted by LdapPasswordChangeProvider.BuildChangePasswordRequest:
     // UTF-16LE with literal " quote chars wrapping the value.
+    //
+    // The atomic change-password protocol requires exactly two modifications:
+    // (1) Delete unicodePwd = "<old>", (2) Add unicodePwd = "<new>". Anything else
+    // (e.g. a single Replace, as used by SetPassword) is a structural mismatch we
+    // want to surface loudly rather than silently treating as a weak-password case.
     private static (string Old, string New) ExtractAtomicChangePwd(ModifyRequest req)
     {
-        if (req.Modifications.Count < 2) return (string.Empty, string.Empty);
+        var count = req.Modifications.Count;
+        if (count != 2)
+        {
+            throw new InvalidOperationException(
+                $"Unexpected modification shape: count={count}, expected atomic Delete+Add");
+        }
         var oldBytes = (byte[])req.Modifications[0][0];
         var newBytes = (byte[])req.Modifications[1][0];
         return (Unquote(System.Text.Encoding.Unicode.GetString(oldBytes)),

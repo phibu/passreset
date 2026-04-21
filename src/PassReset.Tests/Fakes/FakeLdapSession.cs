@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.DirectoryServices.Protocols;
 using PassReset.PasswordProvider.Ldap;
 
@@ -111,7 +112,15 @@ public sealed class FakeLdapSession : ILdapSession
                 return rule.Response!;
             }
         }
-        if (_defaultSearchResponse is not null) return _defaultSearchResponse;
+        if (_defaultSearchResponse is not null)
+        {
+            // Surface default-response usage in test output so a forgotten OnSearch(...)
+            // rule doesn't quietly pass a test via the catch-all. Observational only —
+            // doesn't break existing behavior, just emits a breadcrumb to CI logs.
+            Debug.WriteLine(
+                $"[FakeLdapSession] WARNING: default response served for filter '{filterText}' — no explicit rule matched");
+            return _defaultSearchResponse;
+        }
         throw new InvalidOperationException(
             $"FakeLdapSession: no matching SearchRule for filter='{filterText}'. Register one via OnSearch(...).");
     }
