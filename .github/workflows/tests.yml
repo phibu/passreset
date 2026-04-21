@@ -207,6 +207,11 @@ jobs:
       # (plain LDAP on 389 — no cert-trust dance in CI).
       PASSRESET_PasswordChangeOptions__LdapPort: "389"
       PASSRESET_PasswordChangeOptions__LdapUseSsl: "false"
+      # Array-binding pattern: indexed key per element.
+      PASSRESET_PasswordChangeOptions__LdapHostnames__0: "localhost"
+      PASSRESET_PasswordChangeOptions__BaseDn: "DC=samdom,DC=example,DC=com"
+      PASSRESET_PasswordChangeOptions__ServiceAccountDn: "CN=Administrator,CN=Users,DC=samdom,DC=example,DC=com"
+      PASSRESET_PasswordChangeOptions__AllowedUsernameAttributes__0: "samaccountname"
       PASSRESET_TEST_USERNAME: "testuser"
       PASSRESET_TEST_OLD_PASSWORD: ${{ secrets.SAMBA_TEST_OLD_PASSWORD }}
       PASSRESET_TEST_NEW_PASSWORD: ${{ secrets.SAMBA_TEST_NEW_PASSWORD }}
