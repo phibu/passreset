@@ -1,7 +1,6 @@
 using System.Text.Json.Serialization;
-using PassReset.Common;
 
-namespace PassReset.PasswordProvider;
+namespace PassReset.Common;
 
 /// <summary>
 /// Represents the options / configuration for the Windows AD password change provider.
