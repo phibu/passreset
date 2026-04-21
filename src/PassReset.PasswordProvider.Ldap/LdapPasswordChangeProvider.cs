@@ -448,15 +448,246 @@ public sealed class LdapPasswordChangeProvider : IPasswordChangeProvider
             nameof(code), code, "No user-facing message defined for this error code"),
     };
 
+    /// <summary>
+    /// Resolves the email address for <paramref name="username"/> by searching each configured
+    /// AllowedUsernameAttributes filter in order and returning the first non-empty <c>mail</c>
+    /// value. Returns <c>null</c> if the user is not found, has no mail attribute, or any LDAP
+    /// operation fails (matches the contract in <see cref="IPasswordChangeProvider.GetUserEmail"/>:
+    /// implementations must not throw).
+    /// </summary>
     public string? GetUserEmail(string username)
-        => throw new NotImplementedException();
+    {
+        try
+        {
+            using var session = _sessionFactory();
+            try { session.Bind(); }
+            catch (LdapException ex)
+            {
+                _logger.LogWarning(ex, "GetUserEmail: bind failed for service account");
+                return null;
+            }
 
+            var opts = _options.Value;
+            foreach (var attr in opts.AllowedUsernameAttributes)
+            {
+                var ldapAttr = attr.ToLowerInvariant() switch
+                {
+                    "samaccountname"    => LdapAttributeNames.SamAccountName,
+                    "userprincipalname" => LdapAttributeNames.UserPrincipalName,
+                    "mail"              => LdapAttributeNames.Mail,
+                    _ => null,
+                };
+                if (ldapAttr is null) continue;
+
+                var filter = $"({ldapAttr}={EscapeLdapFilterValue(username)})";
+                var request = new SearchRequest(
+                    distinguishedName: opts.BaseDn,
+                    ldapFilter: filter,
+                    searchScope: SearchScope.Subtree,
+                    attributeList: new[] { LdapAttributeNames.Mail });
+                var resp = session.Search(request);
+                if (resp.Entries.Count == 0) continue;
+
+                var mail = GetFirstStringValueOrNull(resp.Entries[0], LdapAttributeNames.Mail);
+                if (!string.IsNullOrWhiteSpace(mail)) return mail;
+            }
+            return null;
+        }
+        catch (Exception ex) when (ex is LdapException or DirectoryOperationException)
+        {
+            _logger.LogWarning(ex, "GetUserEmail: directory error for {Username}", username);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Enumerates members of <paramref name="groupName"/> recursively using the AD
+    /// <c>LDAP_MATCHING_RULE_IN_CHAIN</c> (1.2.840.113556.1.4.1941) extensible-match operator,
+    /// which makes the directory walk nested groups for us. Yields <c>(samAccountName, mail,
+    /// pwdLastSet)</c> per user; skips members without a mail value (the notification job has
+    /// nothing to send them anyway). On bind/search failure, yields nothing rather than throwing
+    /// — the password expiry background service iterates this lazily.
+    /// </summary>
     public IEnumerable<(string Username, string Email, DateTime? PasswordLastSet)> GetUsersInGroup(string groupName)
-        => throw new NotImplementedException();
+    {
+        // Resolve the group DN up-front so failures bail out before we open the iterator's
+        // session. The yield-return pattern below ties session lifetime to iteration; doing
+        // the lookup inside would mean a partial-iteration consumer leaves the session open
+        // until GC. Keeping the resolve outside makes the empty-result path trivially safe.
+        string? groupDn;
+        try
+        {
+            using var lookupSession = _sessionFactory();
+            try { lookupSession.Bind(); }
+            catch (LdapException ex)
+            {
+                _logger.LogWarning(ex, "GetUsersInGroup: bind failed resolving group {Group}", groupName);
+                yield break;
+            }
+            groupDn = ResolveGroupDn(lookupSession, groupName);
+        }
+        finally { /* lookupSession disposed by using above */ }
 
+        if (groupDn is null)
+        {
+            _logger.LogWarning("GetUsersInGroup: group {Group} not found", groupName);
+            yield break;
+        }
+
+        // CAVEAT-D: `using var session` + `yield return` correctly disposes when the iterator
+        // is fully enumerated or its enumerator is disposed (e.g. via foreach). A consumer that
+        // abandons mid-iteration without disposing (rare; LINQ Take/Where dispose properly)
+        // would leak the session until GC. Acceptable for the background-service caller, which
+        // foreach-iterates to completion.
+        using var session = _sessionFactory();
+        SearchResponse resp;
+        try
+        {
+            session.Bind();
+            // 1.2.840.113556.1.4.1941 = LDAP_MATCHING_RULE_IN_CHAIN — nested membership.
+            var filter = $"(memberOf:1.2.840.113556.1.4.1941:={EscapeLdapFilterValue(groupDn)})";
+            var req = new SearchRequest(
+                distinguishedName: _options.Value.BaseDn,
+                ldapFilter: filter,
+                searchScope: SearchScope.Subtree,
+                attributeList: new[]
+                {
+                    LdapAttributeNames.SamAccountName,
+                    LdapAttributeNames.Mail,
+                    LdapAttributeNames.PwdLastSet,
+                });
+            resp = session.Search(req);
+        }
+        catch (Exception ex) when (ex is LdapException or DirectoryOperationException)
+        {
+            _logger.LogWarning(ex, "GetUsersInGroup: search failed for {Group}", groupName);
+            yield break;
+        }
+
+        foreach (SearchResultEntry entry in resp.Entries)
+        {
+            var sam  = GetFirstStringValueOrNull(entry, LdapAttributeNames.SamAccountName);
+            var mail = GetFirstStringValueOrNull(entry, LdapAttributeNames.Mail);
+            if (string.IsNullOrWhiteSpace(sam) || string.IsNullOrWhiteSpace(mail)) continue;
+
+            DateTime? pwdLastSet = null;
+            var pwdLastSetRaw = GetFirstStringValueOrNull(entry, LdapAttributeNames.PwdLastSet);
+            if (long.TryParse(pwdLastSetRaw, out var ticks) && ticks != 0)
+                pwdLastSet = DateTime.FromFileTimeUtc(ticks);
+
+            yield return (sam, mail, pwdLastSet);
+        }
+    }
+
+    /// <summary>
+    /// Resolves a group's distinguished name from its CN. Returns <c>null</c> on miss or LDAP error.
+    /// </summary>
+    private string? ResolveGroupDn(ILdapSession session, string groupName)
+    {
+        try
+        {
+            var filter = $"(&(objectClass=group)(cn={EscapeLdapFilterValue(groupName)}))";
+            var req = new SearchRequest(
+                distinguishedName: _options.Value.BaseDn,
+                ldapFilter: filter,
+                searchScope: SearchScope.Subtree,
+                attributeList: new[] { LdapAttributeNames.DistinguishedName });
+            var resp = session.Search(req);
+            return resp.Entries.Count == 1 ? resp.Entries[0].DistinguishedName : null;
+        }
+        catch (Exception ex) when (ex is LdapException or DirectoryOperationException)
+        {
+            _logger.LogWarning(ex, "ResolveGroupDn failed for {Group}", groupName);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Reads <c>maxPwdAge</c> from the rootDSE. AD stores this as a negative 100-ns interval
+    /// (e.g. <c>-77760000000000</c> = 90 days). Returns <see cref="TimeSpan.MaxValue"/> when the
+    /// domain has no expiry policy (value is 0) or rootDSE is unavailable.
+    /// </summary>
     public TimeSpan GetDomainMaxPasswordAge()
-        => throw new NotImplementedException();
+    {
+        try
+        {
+            using var session = _sessionFactory();
+            try { session.Bind(); }
+            catch (LdapException ex)
+            {
+                _logger.LogWarning(ex, "GetDomainMaxPasswordAge: bind failed");
+                return TimeSpan.MaxValue;
+            }
 
+            var rootDse = session.RootDse;
+            if (rootDse is null || !rootDse.Attributes.Contains(LdapAttributeNames.MaxPwdAge))
+                return TimeSpan.MaxValue;
+
+            if (!long.TryParse(GetFirstStringValueOrNull(rootDse, LdapAttributeNames.MaxPwdAge), out var raw))
+                return TimeSpan.MaxValue;
+
+            // 0 = no expiry policy (matches Windows provider semantics).
+            if (raw == 0) return TimeSpan.MaxValue;
+            return TimeSpan.FromTicks(Math.Abs(raw));
+        }
+        catch (Exception ex) when (ex is LdapException or DirectoryOperationException)
+        {
+            _logger.LogWarning(ex, "GetDomainMaxPasswordAge: directory error");
+            return TimeSpan.MaxValue;
+        }
+    }
+
+    /// <summary>
+    /// Reads the effective default-domain password policy from the rootDSE: <c>minPwdLength</c>,
+    /// <c>minPwdAge</c>, <c>maxPwdAge</c>. <c>RequiresComplexity</c> and <c>HistoryLength</c> are
+    /// not surfaced by rootDSE (they live on the domain root object's <c>pwdProperties</c> /
+    /// <c>pwdHistoryLength</c> attributes); reported as <c>false</c> / <c>0</c> here. Returns
+    /// <c>null</c> on bind/lookup failure — never throws.
+    /// </summary>
     public Task<PasswordPolicy?> GetEffectivePasswordPolicyAsync()
-        => throw new NotImplementedException();
+    {
+        try
+        {
+            using var session = _sessionFactory();
+            try { session.Bind(); }
+            catch (LdapException ex)
+            {
+                _logger.LogWarning(ex, "GetEffectivePasswordPolicyAsync: bind failed");
+                return Task.FromResult<PasswordPolicy?>(null);
+            }
+
+            var rootDse = session.RootDse;
+            if (rootDse is null) return Task.FromResult<PasswordPolicy?>(null);
+
+            int minLen = 0;
+            if (rootDse.Attributes.Contains(LdapAttributeNames.MinPwdLength) &&
+                int.TryParse(GetFirstStringValueOrNull(rootDse, LdapAttributeNames.MinPwdLength), out var lenParsed))
+                minLen = lenParsed;
+
+            long minAgeTicks = 0;
+            if (rootDse.Attributes.Contains(LdapAttributeNames.MinPwdAge) &&
+                long.TryParse(GetFirstStringValueOrNull(rootDse, LdapAttributeNames.MinPwdAge), out var minAgeRaw))
+                minAgeTicks = Math.Abs(minAgeRaw);
+
+            long maxAgeTicks = 0;
+            if (rootDse.Attributes.Contains(LdapAttributeNames.MaxPwdAge) &&
+                long.TryParse(GetFirstStringValueOrNull(rootDse, LdapAttributeNames.MaxPwdAge), out var maxAgeRaw))
+                maxAgeTicks = Math.Abs(maxAgeRaw);
+
+            var minAgeDays = (int)TimeSpan.FromTicks(minAgeTicks).TotalDays;
+            var maxAgeDays = (int)TimeSpan.FromTicks(maxAgeTicks).TotalDays;
+
+            // RequiresComplexity / HistoryLength are not exposed via rootDSE. The Windows
+            // provider reads them from the domain root entry's pwdProperties bitmask; doing
+            // that here would require a second Search bound to the domain NC. Acceptable
+            // initial fidelity gap — Phase 11 plan flags it; can be lifted later.
+            return Task.FromResult<PasswordPolicy?>(
+                new PasswordPolicy(minLen, RequiresComplexity: false, HistoryLength: 0, minAgeDays, maxAgeDays));
+        }
+        catch (Exception ex) when (ex is LdapException or DirectoryOperationException)
+        {
+            _logger.LogWarning(ex, "GetEffectivePasswordPolicyAsync: directory error");
+            return Task.FromResult<PasswordPolicy?>(null);
+        }
+    }
 }

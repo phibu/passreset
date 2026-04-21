@@ -454,4 +454,98 @@ public class LdapPasswordChangeProviderTests
         Assert.Equal(ApiErrorCode.PasswordTooRecentlyChanged, result!.ErrorCode);
         Assert.Equal(0, fake.ModifyCallCount);
     }
+
+    // ----- GetUserEmail / GetDomainMaxPasswordAge / GetEffectivePasswordPolicyAsync ------------
+
+    [Fact]
+    public void GetUserEmail_Found_ReturnsMail()
+    {
+        // Scope to samaccountname only — default Build() registers all three
+        // AllowedUsernameAttributes (sAM, UPN, mail) and FakeLdapSession throws on unmatched
+        // filter. Using a single attribute keeps this test focused on the mail-resolution path.
+        var opts = new PasswordChangeOptions
+        {
+            AllowedUsernameAttributes = new[] { "samaccountname" },
+            BaseDn = "DC=corp,DC=example,DC=com",
+            ServiceAccountDn = "CN=svc,DC=corp,DC=example,DC=com",
+            ServiceAccountPassword = "svcpw",
+            LdapHostnames = new[] { "dc01.corp.example.com" },
+            LdapPort = 636,
+        };
+        var (sut, fake) = Build(opts);
+        fake.OnSearch(
+            "(samAccountName=alice)",
+            MakeResponse(MakeEntry("CN=Alice,OU=Users,DC=corp,DC=example,DC=com",
+                (LdapAttributeNames.Mail, "alice@corp.example.com"))));
+
+        var email = sut.GetUserEmail("alice");
+
+        Assert.Equal("alice@corp.example.com", email);
+    }
+
+    [Fact]
+    public void GetUserEmail_NotFound_ReturnsNull()
+    {
+        // Default Build() iterates sAM → UPN → mail; register an empty rule for each so the
+        // fake doesn't throw on the second/third lookup. Mirrors PerformPasswordChangeAsync_UserNotFound.
+        var (sut, fake) = Build();
+        fake.OnSearch("(sAMAccountName=ghost)",     MakeResponse());
+        fake.OnSearch("(userPrincipalName=ghost)",  MakeResponse());
+        fake.OnSearch("(mail=ghost)",               MakeResponse());
+
+        var email = sut.GetUserEmail("ghost");
+
+        Assert.Null(email);
+    }
+
+    [Fact]
+    public void GetDomainMaxPasswordAge_ReadsRootDseMaxPwdAge()
+    {
+        var (sut, fake) = Build();
+        var maxPwdAge = -TimeSpan.FromDays(90).Ticks;
+        fake.RootDse = MakeEntry("",
+            (LdapAttributeNames.MaxPwdAge, maxPwdAge.ToString()));
+
+        var age = sut.GetDomainMaxPasswordAge();
+
+        Assert.Equal(TimeSpan.FromDays(90), age);
+    }
+
+    [Fact]
+    public void GetDomainMaxPasswordAge_NoRootDse_ReturnsMaxValue()
+    {
+        var (sut, fake) = Build();
+        fake.RootDse = null;
+
+        var age = sut.GetDomainMaxPasswordAge();
+
+        Assert.Equal(TimeSpan.MaxValue, age);
+    }
+
+    [Fact]
+    public async Task GetEffectivePasswordPolicyAsync_ReturnsPolicyFromRootDse()
+    {
+        var (sut, fake) = Build();
+        fake.RootDse = MakeEntry("",
+            (LdapAttributeNames.MinPwdLength, "8"),
+            (LdapAttributeNames.MaxPwdAge, (-TimeSpan.FromDays(42).Ticks).ToString()));
+
+        var policy = await sut.GetEffectivePasswordPolicyAsync();
+
+        Assert.NotNull(policy);
+        // PasswordPolicy property is named MinLength (not MinPasswordLength) — see PassReset.Common.PasswordPolicy.
+        Assert.Equal(8, policy!.MinLength);
+        Assert.Equal(42, policy.MaxAgeDays);
+    }
+
+    [Fact]
+    public async Task GetEffectivePasswordPolicyAsync_NoRootDse_ReturnsNull()
+    {
+        var (sut, fake) = Build();
+        fake.RootDse = null;
+
+        var policy = await sut.GetEffectivePasswordPolicyAsync();
+
+        Assert.Null(policy);
+    }
 }
