@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using PassReset.Common;
 
 namespace PassReset.PasswordProvider;
@@ -107,6 +108,7 @@ public class PasswordChangeOptions : IAppSettings
     }
 
     /// <inheritdoc />
+    [JsonIgnore]
     public string LdapPassword
     {
         get => _ldapPassword ?? string.Empty;
@@ -132,6 +134,7 @@ public class PasswordChangeOptions : IAppSettings
     /// <c>PasswordChangeOptions__ServiceAccountPassword</c> per the STAB-017 env-var pattern;
     /// never commit plaintext.
     /// </summary>
+    [JsonIgnore]
     public string ServiceAccountPassword { get; set; } = string.Empty;
 
     /// <summary>

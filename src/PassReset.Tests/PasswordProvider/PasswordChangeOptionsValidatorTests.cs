@@ -70,7 +70,6 @@ public class PasswordChangeOptionsValidatorTests
     [Fact]
     public void WindowsMode_OnWindows_Succeeds()
     {
-        if (!OperatingSystem.IsWindows()) return; // platform-gated assertion
         var sut = new PasswordChangeOptionsValidator();
         var opts = new PasswordChangeOptions
         {
