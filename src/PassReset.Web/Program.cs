@@ -13,6 +13,7 @@ using PassReset.Web.Middleware;
 using PassReset.Web.Models;
 using PassReset.Web.Services;
 using PassReset.Web.Services.Configuration;
+using PassReset.Web.Services.Hosting;
 using Serilog;
 // NoOpEmailService lives in PassReset.Web.Helpers (development no-op).
 // SmtpEmailService and PasswordExpiryNotificationService live in PassReset.Web.Services.
@@ -40,6 +41,21 @@ try
             .ReadFrom.Services(services)
             .Enrich.FromLogContext(),
         preserveStaticLogger: true);
+
+    // ── Phase 14: Windows Service support ────────────────────────────────────────
+    // When the process is launched by SCM, bind to the Windows Service lifetime so
+    // Start/Stop/Restart flow through SCM. When launched from console (IIS or dev),
+    // this is a no-op: WindowsServiceHelpers.IsWindowsService() returns false and
+    // the host uses the default console lifetime.
+    builder.Host.UseWindowsService(options =>
+    {
+        options.ServiceName = "PassReset";
+    });
+
+    // ── Phase 14: Hosting mode detection (used by KestrelHttpsCertOptionsValidator) ─
+    var hostingModeDetector = new HostingModeDetector();
+    var hostingMode = hostingModeDetector.Detect();
+    builder.Services.AddSingleton(hostingModeDetector);
 
     // ─── Configuration — AddOptions<T>().Bind().ValidateOnStart() per D-07 ────────
     // Each validator is registered adjacent to its AddOptions call so failure surfaces
@@ -88,6 +104,16 @@ try
     var adminSettings = builder.Configuration
         .GetSection(nameof(AdminSettings))
         .Get<AdminSettings>() ?? new AdminSettings();
+
+    builder.Services.AddOptions<KestrelHttpsCertOptions>()
+        .Bind(builder.Configuration.GetSection("Kestrel:HttpsCert"))
+        .ValidateOnStart();
+    builder.Services.AddSingleton<IValidateOptions<KestrelHttpsCertOptions>>(
+        new KestrelHttpsCertOptionsValidator(() => hostingMode));
+
+    var kestrelHttpsCert = builder.Configuration
+        .GetSection("Kestrel:HttpsCert")
+        .Get<KestrelHttpsCertOptions>() ?? new KestrelHttpsCertOptions();
 
     // ─── PwnedPasswordChecker — HttpClient injected via IHttpClientFactory ─────
     // Registered against both the concrete type (for PasswordChangeProvider's existing
@@ -420,8 +446,48 @@ try
         });
     }
 
+    // ── Phase 14: Service-mode TLS binding ───────────────────────────────────────
+    // IIS mode: the ASP.NET Core Module feeds the request via the named-pipe backend,
+    // so we don't bind a listener here. Console mode: the operator passes --urls on
+    // the command line (or leaves the default). Service mode: bind HTTPS 443 with
+    // the configured cert.
+    if (hostingMode == HostingMode.Service)
+    {
+        builder.WebHost.ConfigureKestrel(opts =>
+        {
+            if (!string.IsNullOrWhiteSpace(kestrelHttpsCert.Thumbprint))
+            {
+                var storeLocation = Enum.Parse<System.Security.Cryptography.X509Certificates.StoreLocation>(
+                    kestrelHttpsCert.StoreLocation, ignoreCase: true);
+                using var store = new System.Security.Cryptography.X509Certificates.X509Store(
+                    kestrelHttpsCert.StoreName, storeLocation);
+                store.Open(System.Security.Cryptography.X509Certificates.OpenFlags.ReadOnly);
+                var cert = store.Certificates
+                    .Find(System.Security.Cryptography.X509Certificates.X509FindType.FindByThumbprint,
+                          kestrelHttpsCert.Thumbprint, validOnly: false)
+                    .OfType<System.Security.Cryptography.X509Certificates.X509Certificate2>()
+                    .FirstOrDefault()
+                    ?? throw new InvalidOperationException(
+                        $"Kestrel:HttpsCert.Thumbprint '{kestrelHttpsCert.Thumbprint}' not found in {kestrelHttpsCert.StoreLocation}/{kestrelHttpsCert.StoreName}.");
+
+                opts.Listen(IPAddress.Any, 443, listen => listen.UseHttps(cert));
+            }
+            else if (!string.IsNullOrWhiteSpace(kestrelHttpsCert.PfxPath))
+            {
+                opts.Listen(IPAddress.Any, 443, listen =>
+                    listen.UseHttps(kestrelHttpsCert.PfxPath!, kestrelHttpsCert.PfxPassword));
+            }
+        });
+    }
+
     // ─── Build app ────────────────────────────────────────────────────────────────
     var app = builder.Build();
+
+    Log.Information(
+        "PassReset starting. HostingMode: {HostingMode}. Process: {Process}. Endpoint: {Urls}.",
+        hostingMode,
+        System.Diagnostics.Process.GetCurrentProcess().ProcessName,
+        string.Join(", ", app.Urls.DefaultIfEmpty("(not yet bound)")));
 
     // ─── Request logging — one structured line per HTTP request ───────────────────
     app.UseSerilogRequestLogging();

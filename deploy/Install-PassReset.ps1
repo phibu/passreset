@@ -1,5 +1,4 @@
-﻿#Requires -RunAsAdministrator
-#Requires -Version 7.0
+﻿#Requires -Version 7.0
 <#
 .SYNOPSIS
     Installs PassReset on IIS (Windows Server 2019 / 2022 / 2025, IIS 10).
@@ -98,7 +97,18 @@ param(
 
     # STAB-019: bypass post-deploy /api/health + /api/password verification (air-gapped hosts only).
     # Default $false — verification runs by default, including under -Force (D-06/D-07).
-    [switch] $SkipHealthCheck = $false
+    [switch] $SkipHealthCheck = $false,
+
+    [ValidateSet('IIS','Service','Console')]
+    [string] $HostingMode,
+
+    # Service mode: identity
+    [string] $ServiceAccount = 'NT SERVICE\PassReset',
+    [securestring] $ServicePassword,
+
+    # Service mode: cert alternative to -CertThumbprint (mutually exclusive)
+    [string] $PfxPath,
+    [securestring] $PfxPassword
 )
 
 Set-StrictMode -Version Latest
@@ -400,7 +410,218 @@ function Test-AppSettingsSchemaDrift {
     }
 }
 
+function Test-HostingModeValue {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $HostingMode)
+    # Uses PowerShell's ValidateSet attribute indirectly via a stub with the same set.
+    $valid = @('IIS','Service','Console')
+    if ($valid -notcontains $HostingMode) {
+        throw "HostingMode '$HostingMode' is not valid. Expected one of: $($valid -join ', ')."
+    }
+    return $true
+}
+
+function Get-HostingModeInteractive {
+    [CmdletBinding()]
+    param(
+        [Parameter()] [string] $Default  # 'IIS' on upgrade of IIS-hosted install; $null on fresh
+    )
+    $prompt = if ($Default) {
+        "Hosting mode? [I]IS / [S]ervice / [C]onsole (default: $Default)"
+    } else {
+        "Hosting mode? [I]IS / [S]ervice / [C]onsole"
+    }
+    while ($true) {
+        $choice = Read-Host $prompt
+        if (-not $choice -and $Default) { return $Default }
+        switch -Regex ($choice) {
+            '^[Ii]' { return 'IIS' }
+            '^[Ss]' { return 'Service' }
+            '^[Cc]' { return 'Console' }
+            default { Write-Host "Please answer I, S, or C." -ForegroundColor Yellow }
+        }
+    }
+}
+
+function Resolve-HttpsCertificate {
+    <#
+    .SYNOPSIS
+    Resolves a cert in Service mode: either a thumbprint in LocalMachine\My or a PFX file path.
+    Returns $null if neither is usable.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter()] [string] $Thumbprint,
+        [Parameter()] [string] $PfxPath,
+        [Parameter()] [securestring] $PfxPassword
+    )
+
+    if ($Thumbprint) {
+        $cert = Get-ChildItem -Path "Cert:\LocalMachine\My" |
+            Where-Object Thumbprint -eq ($Thumbprint -replace '\s','').ToUpperInvariant() |
+            Select-Object -First 1
+        if (-not $cert) {
+            Write-Warning "Certificate with thumbprint '$Thumbprint' not found in Cert:\LocalMachine\My."
+            return $null
+        }
+        if ($cert.NotAfter -lt (Get-Date)) {
+            Write-Warning "Certificate '$($cert.Subject)' expired on $($cert.NotAfter)."
+            return $null
+        }
+        return $cert
+    }
+
+    if ($PfxPath) {
+        if (-not (Test-Path $PfxPath)) {
+            Write-Warning "PFX file '$PfxPath' does not exist."
+            return $null
+        }
+        try {
+            $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($PfxPath, $PfxPassword)
+            return $cert
+        } catch {
+            Write-Warning "Could not open PFX at '$PfxPath': $_"
+            return $null
+        }
+    }
+
+    return $null
+}
+
+function Test-PortFree {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [int] $Port,
+        [Parameter()] [string] $OwnedByIisSite  # if a site is bound to this port and matches, treat as free (will be torn down)
+    )
+
+    $conn = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    if (-not $conn) { return $true }
+
+    # Hook point for IIS-site-owned bindings during migration.
+    if ($OwnedByIisSite) {
+        $iisBinding = Get-Website -Name $OwnedByIisSite -ErrorAction SilentlyContinue
+        if ($iisBinding -and ($iisBinding.Bindings.Collection.bindingInformation -match ":${Port}:")) {
+            Write-Verbose "Port $Port is bound by IIS site '$OwnedByIisSite' — will be freed at teardown."
+            return $true
+        }
+    }
+
+    $owningPid = $conn[0].OwningProcess
+    $proc = Get-Process -Id $owningPid -ErrorAction SilentlyContinue
+    Write-Warning "Port $Port is bound by process $owningPid ($($proc.ProcessName))."
+    return $false
+}
+
+function Test-ServiceModePreflight {
+    <#
+    .SYNOPSIS
+    Runs all Service-mode preconditions. Returns $true only if every check passes.
+    On failure, writes a clear Write-Warning for each failed check and returns $false.
+    Does NOT touch IIS or create services.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter()] [string] $CertThumbprint,
+        [Parameter()] [string] $PfxPath,
+        [Parameter()] [securestring] $PfxPassword,
+        [Parameter()] [int] $Port = 443,
+        [Parameter()] [string] $ServiceAccount = 'NT SERVICE\PassReset',
+        [Parameter()] [string] $MigrateFromIisSite  # optional: existing site name being torn down
+    )
+
+    $ok = $true
+
+    if (-not (Resolve-HttpsCertificate -Thumbprint $CertThumbprint -PfxPath $PfxPath -PfxPassword $PfxPassword)) {
+        Write-Warning "Cert preflight failed."
+        $ok = $false
+    }
+
+    if (-not (Test-PortFree -Port $Port -OwnedByIisSite $MigrateFromIisSite)) {
+        Write-Warning "Port $Port preflight failed."
+        $ok = $false
+    }
+
+    # Service account: virtual accounts are always valid; domain accounts we trust the installer's
+    # caller to pass correctly. We could do an LDAP probe here but won't in this phase.
+    if (-not $ServiceAccount) {
+        Write-Warning "ServiceAccount preflight failed (empty)."
+        $ok = $false
+    }
+
+    return $ok
+}
+
+function Install-AsWindowsService {
+    <#
+    .SYNOPSIS
+    Registers PassReset as a Windows Service. Assumes files are already copied to $BinaryPath
+    and preflight has passed.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $BinaryPath,    # e.g. "C:\Program Files\PassReset\PassReset.Web.exe"
+        [Parameter()] [string] $ServiceAccount = 'NT SERVICE\PassReset',
+        [Parameter()] [securestring] $ServicePassword,  # domain-account installs only
+        [Parameter()] [string] $ServiceName = 'PassReset',
+        [Parameter()] [string] $DisplayName = 'PassReset Password Reset Portal',
+        [Parameter()] [string] $Description = 'Self-service Active Directory password reset portal.'
+    )
+
+    # Stop + remove an existing service with the same name (idempotent).
+    $existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if ($existing) {
+        if ($existing.Status -eq 'Running') { Stop-Service -Name $ServiceName -Force }
+        sc.exe delete $ServiceName | Out-Null
+        Start-Sleep -Seconds 2
+    }
+
+    $newServiceArgs = @{
+        Name           = $ServiceName
+        BinaryPathName = "`"$BinaryPath`""
+        DisplayName    = $DisplayName
+        Description    = $Description
+        StartupType    = 'AutomaticDelayedStart'
+    }
+    if ($ServicePassword) {
+        $newServiceArgs.Credential = [pscredential]::new($ServiceAccount, $ServicePassword)
+    }
+    # Virtual accounts (NT SERVICE\*) are created by SCM without a password.
+
+    New-Service @newServiceArgs | Out-Null
+    Write-Host "Service '$ServiceName' registered. Startup: AutomaticDelayedStart. Identity: $ServiceAccount." -ForegroundColor Green
+
+    Start-Service -Name $ServiceName
+    Write-Host "Service '$ServiceName' started." -ForegroundColor Green
+}
+
+# Pester test mode: dot-source the script to import functions without executing the install flow.
+if ($env:PASSRESET_TEST_MODE -eq '1') {
+    return
+}
+
+# ─── Resolve hosting mode (prompt on fresh install, default on upgrade) ────
+if (-not $HostingMode) {
+    $existingSite = Get-Website -Name 'PassReset' -ErrorAction SilentlyContinue
+    $default = if ($existingSite) { 'IIS' } else { $null }
+    $HostingMode = Get-HostingModeInteractive -Default $default
+}
+Write-Host "Hosting mode: $HostingMode" -ForegroundColor Cyan
+
+if ($HostingMode -eq 'Service') {
+    if ($CertThumbprint -and $PfxPath) {
+        throw "Specify either -CertThumbprint or -PfxPath, not both."
+    }
+    if (-not $CertThumbprint -and -not $PfxPath) {
+        throw "Service mode requires -CertThumbprint or -PfxPath."
+    }
+}
+
 # ─── 1. Prerequisites ─────────────────────────────────────────────────────────
+
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw "This installer must be run as Administrator."
+}
 
 Write-Step 'Checking prerequisites'
 
@@ -789,6 +1010,8 @@ if (-not $ConfigSync) {
 } else {
     Write-Ok "Config sync mode (from -ConfigSync param): $ConfigSync"
 }
+
+if ($HostingMode -eq 'IIS') {
 
 # ─── 4. App pool ──────────────────────────────────────────────────────────────
 
@@ -1302,6 +1525,29 @@ if ($siteExists) {
             Write-Ok 'No schema drift detected.'
         }
     }
+}
+} # end if ($HostingMode -eq 'IIS')
+elseif ($HostingMode -eq 'Service') {
+    if (-not (Test-ServiceModePreflight -CertThumbprint $CertThumbprint -PfxPath $PfxPath -PfxPassword $PfxPassword -ServiceAccount $ServiceAccount -MigrateFromIisSite 'PassReset')) {
+        throw "Service-mode preflight failed. See warnings above. No changes made."
+    }
+    $existingSite = Get-Website -Name 'PassReset' -ErrorAction SilentlyContinue
+    if ($existingSite) {
+        Write-Host "Migrating from IIS: tearing down existing site..." -ForegroundColor Yellow
+        Stop-Website -Name 'PassReset' -ErrorAction SilentlyContinue
+        Remove-Website -Name 'PassReset' -ErrorAction SilentlyContinue
+        if (Get-IISAppPool -Name $AppPoolName -ErrorAction SilentlyContinue) {
+            Remove-WebAppPool -Name $AppPoolName
+        }
+    }
+    Install-AsWindowsService `
+        -BinaryPath (Join-Path $PhysicalPath 'PassReset.Web.exe') `
+        -ServiceAccount $ServiceAccount `
+        -ServicePassword $ServicePassword
+}
+elseif ($HostingMode -eq 'Console') {
+    Write-Host "Console mode: files copied to $PhysicalPath." -ForegroundColor Cyan
+    Write-Host "To start manually: dotnet '$PhysicalPath\PassReset.Web.dll'" -ForegroundColor Cyan
 }
 
 # ─── Done ─────────────────────────────────────────────────────────────────────

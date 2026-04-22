@@ -1,20 +1,22 @@
 ﻿#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Removes a PassReset installation from IIS and the file system.
+    Removes a PassReset installation from IIS, the Windows Service manager, and the file system.
 
 .DESCRIPTION
     This script reverses what Install-PassReset.ps1 created:
-      1. Stops and removes the IIS site.
-      2. Stops and removes the IIS application pool.
-      3. Removes the physical deployment folder and its contents.
-      4. Optionally removes dated backup folders left by previous upgrades.
+      1. Stops and removes the PassReset Windows Service, if one is registered (Phase 14 Service hosting mode).
+      2. Stops and removes the IIS site.
+      3. Stops and removes the IIS application pool.
+      4. Removes the physical deployment folder and its contents.
+      5. Optionally removes dated backup folders left by previous upgrades.
 
     Nothing else is touched: IIS, IIS features, the .NET Hosting Bundle,
     certificates, and all other sites/pools are left completely intact.
 
 .PARAMETER SiteName
-    Name of the IIS site to remove. Default: PassReset
+    Name of the IIS site and/or Windows Service to remove. Both are expected
+    to share this name by convention. Default: PassReset
 
 .PARAMETER AppPoolName
     Name of the IIS application pool to remove. Default: PassResetPool
@@ -74,16 +76,26 @@ $siteExists = Test-Path "IIS:\Sites\$SiteName"
 $poolExists = Test-Path "IIS:\AppPools\$AppPoolName"
 $pathExists = Test-Path $PhysicalPath
 
+# Windows Service hosting mode (Phase 14): the installer may have registered a
+# service with the same name as the site (default: 'PassReset') instead of an IIS site.
+$svc        = Get-Service -Name $SiteName -ErrorAction SilentlyContinue
+$svcExists  = $null -ne $svc
+
+if ($svcExists -and $siteExists) {
+    Write-Warn "Both a Windows Service and an IIS site named '$SiteName' exist. Removing both."
+}
+
 # Find backup folders created by the upgrade path of Install-PassReset.ps1
 $backupFolders = @(Get-Item "${PhysicalPath}_backup_*" -ErrorAction SilentlyContinue)
 
 # --- Nothing to do? -----------------------------------------------------------
 
-if (-not $siteExists -and -not $poolExists -and -not $pathExists) {
+if (-not $siteExists -and -not $poolExists -and -not $pathExists -and -not $svcExists) {
     Write-Warn "Nothing found to remove:"
-    Write-Warn "  Site  '$SiteName'    : not present in IIS"
-    Write-Warn "  Pool  '$AppPoolName' : not present in IIS"
-    Write-Warn "  Path  '$PhysicalPath': does not exist"
+    Write-Warn "  Service '$SiteName'    : not installed"
+    Write-Warn "  Site    '$SiteName'    : not present in IIS"
+    Write-Warn "  Pool    '$AppPoolName' : not present in IIS"
+    Write-Warn "  Path    '$PhysicalPath': does not exist"
     exit 0
 }
 
@@ -91,6 +103,7 @@ if (-not $siteExists -and -not $poolExists -and -not $pathExists) {
 
 Write-Host ''
 Write-Host '  The following will be removed:' -ForegroundColor Yellow
+if ($svcExists)   { Write-Host "    Windows service : $SiteName"     -ForegroundColor Yellow }
 if ($siteExists)  { Write-Host "    IIS site        : $SiteName"     -ForegroundColor Yellow }
 if ($poolExists)  { Write-Host "    IIS app pool    : $AppPoolName"  -ForegroundColor Yellow }
 if ($pathExists -and -not $KeepFiles) {
@@ -116,7 +129,28 @@ if (-not $Force) {
     }
 }
 
-# --- 1. Stop and remove IIS site ----------------------------------------------
+# --- 1. Stop and remove Windows service (Phase 14 hosting mode) ---------------
+
+Write-Step "Removing Windows service: $SiteName"
+
+if ($svcExists) {
+    if ($svc.Status -eq 'Running') {
+        Stop-Service -Name $SiteName -Force
+        Write-Ok "Stopped service $SiteName"
+    }
+    $scOutput = sc.exe delete $SiteName 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "sc.exe delete returned exit code $LASTEXITCODE"
+        if ($scOutput) { Write-Warn "  $scOutput" }
+    } else {
+        Start-Sleep -Seconds 2
+        Write-Ok "Removed service $SiteName"
+    }
+} else {
+    Write-Warn "Windows service '$SiteName' not found — skipping"
+}
+
+# --- 2. Stop and remove IIS site ----------------------------------------------
 
 Write-Step "Removing IIS site: $SiteName"
 
@@ -132,7 +166,7 @@ if ($siteExists) {
     Write-Warn "IIS site '$SiteName' not found — skipping"
 }
 
-# --- 2. Stop and remove app pool ----------------------------------------------
+# --- 3. Stop and remove app pool ----------------------------------------------
 
 Write-Step "Removing app pool: $AppPoolName"
 
@@ -148,7 +182,7 @@ if ($poolExists) {
     Write-Warn "App pool '$AppPoolName' not found — skipping"
 }
 
-# --- 3. Remove deployment folder ----------------------------------------------
+# --- 4. Remove deployment folder ----------------------------------------------
 
 if (-not $KeepFiles) {
     Write-Step "Removing deployment folder: $PhysicalPath"
@@ -164,7 +198,7 @@ if (-not $KeepFiles) {
     Write-Warn "Files retained at $PhysicalPath"
 }
 
-# --- 4. Remove upgrade backup folders (optional) ------------------------------
+# --- 5. Remove upgrade backup folders (optional) ------------------------------
 
 if ($RemoveBackups) {
     Write-Step 'Removing upgrade backup folders'
