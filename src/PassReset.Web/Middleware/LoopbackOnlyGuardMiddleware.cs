@@ -1,13 +1,14 @@
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace PassReset.Web.Middleware;
 
 /// <summary>
-/// Belt-and-braces guard for the admin UI. <see cref="Program"/> uses <c>MapWhen</c>
-/// to route admin requests only from the loopback listener; this middleware additionally
-/// verifies <see cref="HttpContext.Connection.RemoteIpAddress"/> is loopback and returns
-/// 404 otherwise. Defense against a future refactor accidentally exposing <c>/admin</c>.
+/// Belt-and-braces guard for the admin UI. <see cref="Program"/> uses
+/// <c>UseWhen(path)</c> to route <c>/admin/*</c> requests through this middleware
+/// before Razor Pages; the guard verifies <see cref="HttpContext.Connection.RemoteIpAddress"/>
+/// is loopback and returns 404 otherwise. Combined with Kestrel's 127.0.0.1 bind and
+/// the opt-in <c>AdminSettings.Enabled</c> flag, this is the defense-in-depth against
+/// a future refactor accidentally exposing <c>/admin</c>.
 /// </summary>
 internal sealed class LoopbackOnlyGuardMiddleware
 {

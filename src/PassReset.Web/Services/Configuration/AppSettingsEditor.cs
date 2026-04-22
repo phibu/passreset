@@ -28,6 +28,11 @@ internal sealed class AppSettingsEditor : IAppSettingsEditor
 
     private readonly string _path;
 
+    // Save performs Load-merge-Write over a shared file. Serializes those to avoid
+    // a lost update when two admin-form POSTs land concurrently. Load stays lock-free;
+    // File.Move is atomic so readers see either the pre- or post-Save state.
+    private readonly Lock _writeGate = new();
+
     public AppSettingsEditor(string path)
     {
         _path = path;
@@ -60,30 +65,33 @@ internal sealed class AppSettingsEditor : IAppSettingsEditor
 
     public void Save(AppSettingsSnapshot snapshot)
     {
-        JsonObject root;
-        if (File.Exists(_path))
+        lock (_writeGate)
         {
-            var text = File.ReadAllText(_path);
-            root = JsonNode.Parse(text, NodeOpts, new JsonDocumentOptions
+            JsonObject root;
+            if (File.Exists(_path))
             {
-                CommentHandling = JsonCommentHandling.Skip,
-                AllowTrailingCommas = true,
-            }) as JsonObject ?? new JsonObject();
-        }
-        else
-        {
-            root = new JsonObject();
-        }
+                var text = File.ReadAllText(_path);
+                root = JsonNode.Parse(text, NodeOpts, new JsonDocumentOptions
+                {
+                    CommentHandling = JsonCommentHandling.Skip,
+                    AllowTrailingCommas = true,
+                }) as JsonObject ?? new JsonObject();
+            }
+            else
+            {
+                root = new JsonObject();
+            }
 
-        WritePasswordChange(root, snapshot.PasswordChange, snapshot.Groups, snapshot.LocalPolicy);
-        WriteSmtp(root, snapshot.Smtp);
-        WriteRecaptcha(root, snapshot.Recaptcha);
-        WriteSiem(root, snapshot.Siem);
+            WritePasswordChange(root, snapshot.PasswordChange, snapshot.Groups, snapshot.LocalPolicy);
+            WriteSmtp(root, snapshot.Smtp);
+            WriteRecaptcha(root, snapshot.Recaptcha);
+            WriteSiem(root, snapshot.Siem);
 
-        var json = root.ToJsonString(WriteOpts);
-        var tmp = _path + ".tmp";
-        File.WriteAllText(tmp, json);
-        File.Move(tmp, _path, overwrite: true);
+            var json = root.ToJsonString(WriteOpts);
+            var tmp = _path + ".tmp";
+            File.WriteAllText(tmp, json);
+            File.Move(tmp, _path, overwrite: true);
+        }
     }
 
     private static AppSettingsSnapshot Defaults() => new(

@@ -170,10 +170,14 @@ try
     // Re-add environment variables AFTER the secret source so they retain precedence.
     builder.Configuration.AddEnvironmentVariables();
 
-    // Razor Pages for the admin UI — registered even if disabled so MapWhen is a no-op
-    // but DI resolution still works. Each admin page declares an explicit `@page`
-    // route like `/admin/Smtp` to avoid relying on area discovery.
-    builder.Services.AddRazorPages();
+    // Razor Pages for the admin UI — only registered when the admin feature is opt-in
+    // enabled, so a future refactor that calls MapRazorPages() unconditionally can't
+    // accidentally expose /admin/* on the public listener. Each admin page declares
+    // an explicit `@page "/admin/..."` route to avoid relying on area discovery.
+    if (adminSettings.Enabled)
+    {
+        builder.Services.AddRazorPages();
+    }
 
     // ─── Provider registration (runtime config flag, no compile-time conditionals) ─
     var webSettings = builder.Configuration

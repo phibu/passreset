@@ -39,10 +39,14 @@ internal sealed class SecretConfigurationProvider : ConfigurationProvider
                     data["ClientSettings:Recaptcha:PrivateKey"] = bundle.RecaptchaPrivateKey;
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // If secrets cannot be loaded, proceed with empty data.
-            // Configuration sources later in the pipeline can provide values.
+            // Don't throw from startup — let env vars / appsettings fill the gap. But
+            // DO surface the failure: a silent decrypt failure (key-ring mismatch,
+            // corrupt ciphertext, missing DPAPI identity) otherwise manifests only as
+            // downstream auth failures (LDAP bind, SMTP auth) with no diagnostic clue.
+            Serilog.Log.Error(ex,
+                "SecretConfigurationProvider: failed to load secrets; proceeding with empty data. Downstream auth will rely on env-var / appsettings overrides.");
         }
 
         Data = data;

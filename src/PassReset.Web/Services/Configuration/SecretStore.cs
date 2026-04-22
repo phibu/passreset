@@ -20,6 +20,11 @@ internal sealed class SecretStore : ISecretStore
     private readonly string _path;
     private readonly ILogger<SecretStore> _log;
 
+    // Serializes Save across admin-form POSTs so two tabs submitting simultaneously
+    // don't lose the earlier write. Load stays lock-free; File.Move is atomic, so
+    // readers see either the pre- or post-Save file, never torn contents.
+    private readonly Lock _writeGate = new();
+
     public SecretStore(IConfigProtector protector, string path, ILogger<SecretStore> log)
     {
         _protector = protector;
@@ -51,9 +56,12 @@ internal sealed class SecretStore : ISecretStore
         var plaintext = JsonSerializer.Serialize(bundle, JsonOpts);
         var ciphertext = _protector.Protect(plaintext);
 
-        var tmp = _path + ".tmp";
-        File.WriteAllText(tmp, ciphertext);
-        File.Move(tmp, _path, overwrite: true);
+        lock (_writeGate)
+        {
+            var tmp = _path + ".tmp";
+            File.WriteAllText(tmp, ciphertext);
+            File.Move(tmp, _path, overwrite: true);
+        }
 
         _log.LogInformation("SecretStore: wrote {Path}", _path);
     }
