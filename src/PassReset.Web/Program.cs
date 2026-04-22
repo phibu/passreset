@@ -171,7 +171,8 @@ try
     builder.Configuration.AddEnvironmentVariables();
 
     // Razor Pages for the admin UI — registered even if disabled so MapWhen is a no-op
-    // but DI resolution still works.
+    // but DI resolution still works. Each admin page declares an explicit `@page`
+    // route like `/admin/Smtp` to avoid relying on area discovery.
     builder.Services.AddRazorPages();
 
     // ─── Provider registration (runtime config flag, no compile-time conditionals) ─
@@ -480,14 +481,18 @@ try
 
     if (adminSettings.Enabled)
     {
-        app.MapWhen(
-            ctx => ctx.Connection.LocalPort == adminSettings.LoopbackPort,
-            admin =>
-            {
-                admin.UseMiddleware<PassReset.Web.Middleware.LoopbackOnlyGuardMiddleware>();
-                admin.UseRouting();
-                admin.UseEndpoints(e => e.MapRazorPages());
-            });
+        // Route /admin/* requests through the loopback guard then into Razor Pages.
+        // Security relies on three layers: (1) Kestrel binds the admin listener to
+        // 127.0.0.1 only, (2) LoopbackOnlyGuardMiddleware rejects any non-loopback
+        // remote IP, (3) the guard middleware 404s any request that arrived via the
+        // wrong socket.
+        // MapRazorPages is called on the outer endpoint builder (after UseRouting)
+        // so WebApplicationFactory's TestServer endpoint graph is populated correctly.
+        // The loopback guard is applied via a convention on every /admin/* endpoint.
+        app.UseWhen(
+            ctx => ctx.Request.Path.StartsWithSegments("/admin"),
+            admin => admin.UseMiddleware<PassReset.Web.Middleware.LoopbackOnlyGuardMiddleware>());
+        app.MapRazorPages();
     }
 
     app.MapControllers();

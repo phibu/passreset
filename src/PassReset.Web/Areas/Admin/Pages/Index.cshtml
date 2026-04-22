@@ -1,10 +1,10 @@
-@page
+@page "/admin"
 @model IndexModel
 @{
     ViewData["Title"] = "Dashboard";
 }
 <h1 class="mb-4">Configuration overview</h1>
-<p class="text-muted">Use the navigation above to edit each section. After saving, visit <a asp-page="/Recycle">Recycle</a> to apply changes.</p>
+<p class="text-muted">Use the navigation above to edit each section. After saving, visit <a href="/admin/Recycle">Recycle</a> to apply changes.</p>
 
 <table class="table">
     <thead><tr><th>Section</th><th>Status</th></tr></thead>
