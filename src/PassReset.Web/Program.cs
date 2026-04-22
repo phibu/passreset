@@ -1,14 +1,18 @@
+using System.Net;
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
 using PassReset.Common;
 using PassReset.PasswordProvider;
 using PassReset.PasswordProvider.Ldap;
+using PassReset.Web.Configuration;
 using PassReset.Web.Helpers;
 using PassReset.Web.Middleware;
 using PassReset.Web.Models;
 using PassReset.Web.Services;
+using PassReset.Web.Services.Configuration;
 using Serilog;
 // NoOpEmailService lives in PassReset.Web.Helpers (development no-op).
 // SmtpEmailService and PasswordExpiryNotificationService live in PassReset.Web.Services.
@@ -76,6 +80,15 @@ try
         .ValidateOnStart();
     builder.Services.AddSingleton<IValidateOptions<PasswordChangeOptions>, PasswordChangeOptionsValidator>();
 
+    builder.Services.AddOptions<AdminSettings>()
+        .Bind(builder.Configuration.GetSection(nameof(AdminSettings)))
+        .ValidateOnStart();
+    builder.Services.AddSingleton<IValidateOptions<AdminSettings>, AdminSettingsValidator>();
+
+    var adminSettings = builder.Configuration
+        .GetSection(nameof(AdminSettings))
+        .Get<AdminSettings>() ?? new AdminSettings();
+
     // ─── PwnedPasswordChecker — HttpClient injected via IHttpClientFactory ─────
     // Registered against both the concrete type (for PasswordChangeProvider's existing
     // constructor dependency) and the IPwnedPasswordChecker interface (for the new
@@ -97,6 +110,69 @@ try
     });
     builder.Services.AddTransient<IPwnedPasswordChecker>(sp =>
         sp.GetRequiredService<PwnedPasswordChecker>());
+
+    // ─── Phase 13: Admin UI + encrypted secret storage ────────────────────────────
+    var dpKeyPath = adminSettings.KeyStorePath
+        ?? Path.Combine(AppContext.BaseDirectory, "keys");
+    Directory.CreateDirectory(dpKeyPath);
+
+    var dpBuilder = builder.Services.AddDataProtection()
+        .SetApplicationName("PassReset")
+        .PersistKeysToFileSystem(new DirectoryInfo(dpKeyPath));
+
+    if (OperatingSystem.IsWindows())
+    {
+#pragma warning disable CA1416 // Windows-only API; runtime-guarded above
+        dpBuilder.ProtectKeysWithDpapi();
+#pragma warning restore CA1416
+    }
+    else if (!string.IsNullOrWhiteSpace(adminSettings.DataProtectionCertThumbprint))
+    {
+        dpBuilder.ProtectKeysWithCertificate(adminSettings.DataProtectionCertThumbprint);
+    }
+
+    var secretsPath = adminSettings.SecretsFilePath
+        ?? Path.Combine(AppContext.BaseDirectory, "secrets.dat");
+
+    builder.Services.AddSingleton<IConfigProtector, ConfigProtector>();
+    builder.Services.AddSingleton<ISecretStore>(sp => new SecretStore(
+        sp.GetRequiredService<IConfigProtector>(),
+        secretsPath,
+        sp.GetRequiredService<ILogger<SecretStore>>()));
+
+    var appSettingsPath = adminSettings.AppSettingsFilePath
+        ?? Path.Combine(AppContext.BaseDirectory, "appsettings.Production.json");
+    builder.Services.AddSingleton<IAppSettingsEditor>(_ => new AppSettingsEditor(appSettingsPath));
+
+    builder.Services.AddSingleton<IProcessRunner, DefaultProcessRunner>();
+
+    // SecretConfigurationProvider must be added to Configuration BEFORE env vars
+    // so STAB-017 env-var overrides still win.
+    // IMPORTANT: at this point builder.Configuration already has the default sources
+    // including env vars. We re-add env vars AFTER the secret source to preserve precedence.
+    var tempDpServices = new ServiceCollection();
+    tempDpServices.AddDataProtection()
+        .SetApplicationName("PassReset")
+        .PersistKeysToFileSystem(new DirectoryInfo(dpKeyPath));
+    if (OperatingSystem.IsWindows())
+    {
+#pragma warning disable CA1416
+        tempDpServices.AddDataProtection().ProtectKeysWithDpapi();
+#pragma warning restore CA1416
+    }
+    using var tempDpSp = tempDpServices.BuildServiceProvider();
+    var bootstrapProtector = new ConfigProtector(tempDpSp.GetRequiredService<IDataProtectionProvider>());
+    var bootstrapLogger = LoggerFactory.Create(lb => lb.AddSerilog(dispose: false)).CreateLogger<SecretStore>();
+
+    ((IConfigurationBuilder)builder.Configuration).Add(new SecretConfigurationSource(
+        () => new SecretStore(bootstrapProtector, secretsPath, bootstrapLogger)));
+
+    // Re-add environment variables AFTER the secret source so they retain precedence.
+    builder.Configuration.AddEnvironmentVariables();
+
+    // Razor Pages for the admin UI — registered even if disabled so MapWhen is a no-op
+    // but DI resolution still works.
+    builder.Services.AddRazorPages();
 
     // ─── Provider registration (runtime config flag, no compile-time conditionals) ─
     var webSettings = builder.Configuration
@@ -331,6 +407,14 @@ try
     // ─── MVC / API ────────────────────────────────────────────────────────────────
     builder.Services.AddControllers();
 
+    if (adminSettings.Enabled)
+    {
+        builder.WebHost.ConfigureKestrel(opts =>
+        {
+            opts.Listen(IPAddress.Loopback, adminSettings.LoopbackPort);
+        });
+    }
+
     // ─── Build app ────────────────────────────────────────────────────────────────
     var app = builder.Build();
 
@@ -393,6 +477,18 @@ try
 
     // ─── Rate limiting — must come after UseRouting so endpoint metadata is resolved ─
     app.UseRateLimiter();
+
+    if (adminSettings.Enabled)
+    {
+        app.MapWhen(
+            ctx => ctx.Connection.LocalPort == adminSettings.LoopbackPort,
+            admin =>
+            {
+                admin.UseMiddleware<PassReset.Web.Middleware.LoopbackOnlyGuardMiddleware>();
+                admin.UseRouting();
+                admin.UseEndpoints(e => e.MapRazorPages());
+            });
+    }
 
     app.MapControllers();
 
