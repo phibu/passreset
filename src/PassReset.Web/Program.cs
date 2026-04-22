@@ -13,6 +13,7 @@ using PassReset.Web.Middleware;
 using PassReset.Web.Models;
 using PassReset.Web.Services;
 using PassReset.Web.Services.Configuration;
+using PassReset.Web.Services.Hosting;
 using Serilog;
 // NoOpEmailService lives in PassReset.Web.Helpers (development no-op).
 // SmtpEmailService and PasswordExpiryNotificationService live in PassReset.Web.Services.
@@ -40,6 +41,11 @@ try
             .ReadFrom.Services(services)
             .Enrich.FromLogContext(),
         preserveStaticLogger: true);
+
+    // ── Phase 14: Hosting mode detection (used by KestrelHttpsCertOptionsValidator) ─
+    var hostingModeDetector = new HostingModeDetector();
+    var hostingMode = hostingModeDetector.Detect();
+    builder.Services.AddSingleton(hostingModeDetector);
 
     // ─── Configuration — AddOptions<T>().Bind().ValidateOnStart() per D-07 ────────
     // Each validator is registered adjacent to its AddOptions call so failure surfaces
@@ -88,6 +94,16 @@ try
     var adminSettings = builder.Configuration
         .GetSection(nameof(AdminSettings))
         .Get<AdminSettings>() ?? new AdminSettings();
+
+    builder.Services.AddOptions<KestrelHttpsCertOptions>()
+        .Bind(builder.Configuration.GetSection("Kestrel:HttpsCert"))
+        .ValidateOnStart();
+    builder.Services.AddSingleton<IValidateOptions<KestrelHttpsCertOptions>>(
+        new KestrelHttpsCertOptionsValidator(() => hostingMode));
+
+    var kestrelHttpsCert = builder.Configuration
+        .GetSection("Kestrel:HttpsCert")
+        .Get<KestrelHttpsCertOptions>() ?? new KestrelHttpsCertOptions();
 
     // ─── PwnedPasswordChecker — HttpClient injected via IHttpClientFactory ─────
     // Registered against both the concrete type (for PasswordChangeProvider's existing
