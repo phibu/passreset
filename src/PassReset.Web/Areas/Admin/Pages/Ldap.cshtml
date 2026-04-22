@@ -1,0 +1,67 @@
+@page
+@model LdapModel
+@{
+    ViewData["Title"] = "LDAP";
+}
+<h1 class="mb-4">LDAP configuration</h1>
+
+<form method="post">
+    <div class="form-check mb-3">
+        <input class="form-check-input" type="checkbox" asp-for="Input.UseAutomaticContext" />
+        <label class="form-check-label" asp-for="Input.UseAutomaticContext">
+            Use automatic context (domain-joined Windows servers only)
+        </label>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label" asp-for="Input.ProviderMode">Provider mode</label>
+        <select asp-for="Input.ProviderMode" class="form-select" asp-items="Html.GetEnumSelectList<PassReset.Common.ProviderMode>()"></select>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label" asp-for="Input.LdapHostnamesCsv">LDAP hostnames (comma-separated)</label>
+        <input class="form-control" asp-for="Input.LdapHostnamesCsv" />
+        <span asp-validation-for="Input.LdapHostnamesCsv" class="text-danger"></span>
+    </div>
+
+    <div class="row">
+        <div class="col-md-3 mb-3">
+            <label class="form-label" asp-for="Input.LdapPort">Port</label>
+            <input class="form-control" type="number" asp-for="Input.LdapPort" />
+            <span asp-validation-for="Input.LdapPort" class="text-danger"></span>
+        </div>
+        <div class="col-md-3 mb-3 form-check align-self-end">
+            <input class="form-check-input" type="checkbox" asp-for="Input.LdapUseSsl" />
+            <label class="form-check-label" asp-for="Input.LdapUseSsl">Use SSL/TLS</label>
+        </div>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label" asp-for="Input.BaseDn">Base DN</label>
+        <input class="form-control" asp-for="Input.BaseDn" />
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label" asp-for="Input.ServiceAccountDn">Service account DN</label>
+        <input class="form-control" asp-for="Input.ServiceAccountDn" />
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label" asp-for="Input.DefaultDomain">Default domain</label>
+        <input class="form-control" asp-for="Input.DefaultDomain" />
+    </div>
+
+    <hr />
+
+    <div class="mb-3">
+        <label class="form-label" asp-for="Input.NewLdapPassword">LDAP bind password (legacy Windows mode)</label>
+        <input class="form-control" type="password" asp-for="Input.NewLdapPassword" placeholder="••••••• (leave blank to keep current)" />
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label" asp-for="Input.NewServiceAccountPassword">Service-account password (LDAP mode)</label>
+        <input class="form-control" type="password" asp-for="Input.NewServiceAccountPassword" placeholder="••••••• (leave blank to keep current)" />
+    </div>
+
+    <button type="submit" class="btn btn-primary">Save</button>
+</form>
