@@ -8,82 +8,86 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Added
-- **`IAdConnectivityProbe`** — narrow AD-reachability seam for the health endpoint. `DomainJoinedProbe` (Windows, in `PassReset.PasswordProvider`) + `LdapTcpProbe` (cross-platform, in `PassReset.PasswordProvider.Ldap`) implementations. Replaces the inline `PrincipalContext` / `TcpClient` logic in `HealthController`. *(web, provider, provider-ldap)*
-- **`IPrincipalContextFactory`** — Windows-only seam over `PrincipalContext` + `UserPrincipal.FindByIdentity`. `PasswordChangeProvider` now depends on the interface instead of the BCL types directly. Lays groundwork for future cross-provider contract-test parity. *(provider)*
-- **Local password policy** ([V2-002]): operator-managed offline password policy layer.
-  A new `LocalPolicyPasswordChangeProvider` decorator sits outermost in the password-change
-  chain and enforces two optional checks before any AD round-trip:
-  - Banned-words list: plaintext file, case-insensitive substring match
-  - Local HIBP SHA-1 corpus: air-gapped alternative to the remote HIBP API
-  When `LocalPwnedPasswordsPath` is configured, remote HIBP API calls are disabled
-  automatically. See `docs/LocalPasswordPolicy-Setup.md` for operator setup.
-- **Admin UI + encrypted config storage** ([V2-003]): loopback-only admin website at
-  `/admin` for editing operator-owned configuration. Bound to `127.0.0.1:<LoopbackPort>`
-  via a dedicated Kestrel listener — socket-level enforcement, not reachable over the
-  public HTTPS binding. Secrets are encrypted on disk via ASP.NET Core Data Protection
-  (`secrets.dat`); non-secrets remain in plaintext `appsettings.Production.json`.
-  Environment-variable overrides (STAB-017) continue to take precedence.
-  See `docs/Admin-UI.md`. *(web, installer, docs)*
-
-### Configuration
-- `PasswordChangeOptions.LocalPolicy.BannedWordsPath` (optional, null default) — path to banned-words file
-- `PasswordChangeOptions.LocalPolicy.LocalPwnedPasswordsPath` (optional, null default) — path to HIBP corpus directory
-- `PasswordChangeOptions.LocalPolicy.MinBannedTermLength` (default: 4) — minimum banned-term length
-- `AdminSettings.Enabled` (default: `false`, opt-in) — master feature flag for the admin UI
-- `AdminSettings.LoopbackPort` (default: `5010`) — 127.0.0.1 listener port
-- `AdminSettings.KeyStorePath` (default: `<install-dir>/keys`) — Data Protection key ring directory
-- `AdminSettings.DataProtectionCertThumbprint` (Linux only) — required cert thumbprint on non-Windows
-- `AdminSettings.AppSettingsFilePath` (default: next to the main appsettings file)
-- `AdminSettings.SecretsFilePath` (default: `<install-dir>/secrets.dat`)
-
-### API
-- New `ApiErrorCode` values: `BannedWord` (20), `LocallyKnownPwned` (21). Frontend messages
-  are intentionally identical ("This password is not allowed by local policy.") to avoid
-  leaking which list matched.
-
-### Changed
-- **`HealthController` no longer references `System.DirectoryServices.AccountManagement`.** AD reachability is delegated to the DI-injected `IAdConnectivityProbe`. Wiring selects the right implementation by `ProviderMode`. *(web)*
-
-### Security
-- New socket-level loopback binding for the admin UI — admin endpoints are
-  unreachable from the public listener.
-- Data Protection purpose isolation (`PassReset.Configuration.v1`) prevents
-  cross-use of secret ciphertext with other DP consumers (antiforgery, etc.).
-- Antiforgery tokens required on all admin POSTs.
-- Installer creates `<install-dir>/keys` with a restrictive NTFS ACL (app pool:
-  Modify; Administrators: FullControl; inheritance disabled).
-
-### Non-changes (explicit)
-- **`PassReset.Web` still uses the Phase-11 conditional TFM.** Cross-platform deployment of the web host remains blocked by NU1201: NuGet refuses to restore a plain `net10.0` project with a `ProjectReference` to a `net10.0-windows` one, even behind a `<Condition>` guard. Unblocking Linux hosting requires multi-targeting `PassReset.PasswordProvider` (out of scope for hygiene; deferred to a follow-up phase).
-- **Windows contract tests are gone, not fixed.** The Phase-11 `PasswordChangeProviderContractTests` skip shim was deleted rather than unskipped. Reason: `UserPrincipal` is sealed in the .NET 10 BCL; `IPrincipalContextFactory` cannot return mockable principals. Full parity would require widening the seam to cover the AD operation surface (`ChangePassword`, `UserCannotChangePassword`, etc. — ~15+ methods) and was judged out of scope for Phase 11 Hygiene. Windows provider retains its 139 impl-specific tests + Samba integration coverage; LDAP provider's 7 contract tests are unchanged.
+(nothing yet)
 
 ---
 
-## [2.0.0-alpha.1] — TBD (release day)
+## [2.0.0-alpha.1] — 2026-04-22
 
-First v2.0 alpha. Introduces a cross-platform `LdapPasswordChangeProvider` backed by `System.DirectoryServices.Protocols`. **Existing Windows deployments upgrade with no config changes** — `PasswordChangeOptions.ProviderMode` defaults to `Auto`, which picks the Windows provider on Windows.
+First v2.0 alpha. Bundles four phases of work on top of v1.4.2: cross-platform LDAP provider (phase 11), local offline password policy (phase 12), loopback admin UI with encrypted secret storage (phase 13), and pluggable Windows hosting modes — IIS, Windows Service, or Console (phase 14). **Existing IIS deployments upgrade with no config changes**; all new features are opt-in.
 
 ### Added
-- **Cross-platform LDAP provider** — new `PassReset.PasswordProvider.Ldap` project (`net10.0`) implementing `IPasswordChangeProvider` via `LdapConnection`. Works on Windows, Linux, and macOS. Passes a shared behavioral contract test suite against the existing Windows provider. *(provider)*
-- **`PasswordChangeOptions.ProviderMode`** — new `Auto | Windows | Ldap` enum selecting the active provider. Default `Auto`. Schema + templates updated. *(web, provider)*
-- **Service-account LDAP binding fields** — `ServiceAccountDn`, `ServiceAccountPassword`, `BaseDn`, `LdapHostnames`, `LdapPort`, `LdapUseSsl`, `LdapTrustedCertificateThumbprints`. `ServiceAccountPassword` binds via the `PasswordChangeOptions__ServiceAccountPassword` env var. *(web, provider)*
-- **New operator doc** — [`docs/AD-ServiceAccount-LDAP-Setup.md`](docs/AD-ServiceAccount-LDAP-Setup.md) covers service-account creation, "Change Password" extended right grant, LDAPS cert trust on Linux, and a troubleshooting matrix. *(docs)*
-- **Samba DC CI integration test** (warning-only in this release) — GitHub Actions `integration-tests-ldap` job spins up a Samba AD DC service container and runs an end-to-end change-password flow against the Ldap provider. *(ci)*
+
+**Phase 11 — Cross-platform LDAP provider**
+- **`PassReset.PasswordProvider.Ldap`** — new project (`net10.0`) implementing `IPasswordChangeProvider` via `System.DirectoryServices.Protocols.LdapConnection`. Works on Windows, Linux, and macOS. Passes a shared behavioral contract suite against the Windows provider. *(provider)*
+- **`PasswordChangeOptions.ProviderMode`** — new `Auto | Windows | Ldap` enum selecting the active provider. Default `Auto` picks the Windows provider on Windows. Schema + templates updated. *(web, provider)*
+- **Service-account LDAP binding** — `ServiceAccountDn`, `ServiceAccountPassword`, `BaseDn`, `LdapHostnames`, `LdapPort`, `LdapUseSsl`, `LdapTrustedCertificateThumbprints`. `ServiceAccountPassword` binds via the `PasswordChangeOptions__ServiceAccountPassword` env var. *(web, provider)*
+- **Samba DC CI integration test** — GitHub Actions `integration-tests-ldap` job spins up a Samba AD DC container and runs end-to-end change-password flows against the Ldap provider. *(ci)*
+- **`IAdConnectivityProbe`** — narrow AD-reachability seam for the health endpoint. `DomainJoinedProbe` (Windows) + `LdapTcpProbe` (cross-platform) implementations replace the inline `PrincipalContext` / `TcpClient` logic in `HealthController`. *(web, provider, provider-ldap)*
+- **`IPrincipalContextFactory`** — Windows-only seam over `PrincipalContext` + `UserPrincipal.FindByIdentity`. Decouples `PasswordChangeProvider` from BCL types directly. *(provider)*
+
+**Phase 12 — Local offline password policy**
+- **`LocalPolicyPasswordChangeProvider`** — decorator sitting outermost in the password-change chain, enforcing two optional checks before any AD round-trip:
+  - **Banned-words list** — plaintext file, case-insensitive substring match.
+  - **Local HIBP SHA-1 corpus** — air-gapped alternative to the remote HIBP API. When `LocalPwnedPasswordsPath` is configured, remote HIBP API calls are disabled automatically.
+  See `docs/LocalPasswordPolicy-Setup.md` for operator setup. *(common, web)*
+- **New `ApiErrorCode` values** — `BannedWord` (20), `LocallyKnownPwned` (21). Frontend messages are intentionally identical ("This password is not allowed by local policy.") to avoid leaking which list matched. *(common, web)*
+
+**Phase 13 — Admin UI + encrypted secret storage**
+- **Loopback admin website at `/admin`** for editing operator-owned configuration. Bound to `127.0.0.1:<LoopbackPort>` via a dedicated Kestrel listener — socket-level enforcement, not reachable over the public HTTPS binding. *(web)*
+- **Encrypted secret storage (`secrets.dat`)** via ASP.NET Core Data Protection. Non-secrets remain in plaintext `appsettings.Production.json`; env-var overrides continue to take precedence. *(web)*
+- **Operator doc** — see `docs/Admin-UI.md`.
+
+**Phase 14 — Windows hosting modes (IIS / Service / Console)**
+- **`-HostingMode` installer parameter** — `Install-PassReset.ps1` now accepts `-HostingMode IIS|Service|Console`. `IIS` is the default; `Service` registers the app as a Windows Service; `Console` runs the app in a plain console for development / diagnostics. *(installer, web)*
+- **Windows Service host** — `PassReset.Web` uses `Microsoft.Extensions.Hosting.WindowsServices` to run under SCM. The same `PassReset.exe` binary runs under IIS (via the ASP.NET Core Module), as a Windows Service, or as a console app. *(web)*
+- **`KestrelHttpsCertOptions`** — TLS configuration for Service mode. Supports cert-by-thumbprint (from the Windows cert store) OR cert-by-PFX-file. Configured via `Kestrel:HttpsCert:Thumbprint` / `Kestrel:HttpsCert:PfxPath` / `Kestrel:HttpsCert:PfxPassword` in `appsettings.Production.json`. *(web)*
+- **Installer preflight** — cert resolution + port availability + service-account check run before any IIS / Service changes. Fails fast with actionable diagnostics; IIS is not touched on failed migration. New installer params: `-ServiceAccount`, `-PfxPath`, `-PfxPassword`. *(installer)*
+- **Service-aware uninstaller** — `Uninstall-PassReset.ps1` now detects and removes the `PassReset` Windows Service before the IIS teardown, checks `sc.exe` exit codes, and warns on dual IIS+Service presence. *(installer)*
+- **Pester test scaffold** — first Pester test file in the repo (`deploy/Install-PassReset.Tests.ps1`) covering installer parameters and preflight behavior. *(test, installer)*
+
+### Configuration
+
+- `PasswordChangeOptions.LocalPolicy.BannedWordsPath` (null default) — banned-words file path
+- `PasswordChangeOptions.LocalPolicy.LocalPwnedPasswordsPath` (null default) — HIBP corpus directory
+- `PasswordChangeOptions.LocalPolicy.MinBannedTermLength` (default: 4)
+- `AdminSettings.Enabled` (default: `false`, opt-in) — master flag for the admin UI
+- `AdminSettings.LoopbackPort` (default: `5010`)
+- `AdminSettings.KeyStorePath` (default: `<install-dir>/keys`)
+- `AdminSettings.DataProtectionCertThumbprint` (Linux only)
+- `AdminSettings.AppSettingsFilePath` / `AdminSettings.SecretsFilePath` — overridable file paths
+- `Kestrel:HttpsCert:Thumbprint` (null default) — Service-mode TLS cert from Windows cert store
+- `Kestrel:HttpsCert:PfxPath` / `Kestrel:HttpsCert:PfxPassword` (null default) — Service-mode TLS via PFX file
 
 ### Changed
-- **`PassReset.Web` retargeted to `net10.0`** — the Windows provider is now a conditional `ProjectReference` gated on `$(OS) == 'Windows_NT'` with a `WINDOWS_PROVIDER` compile constant. Linux / Docker builds skip the Windows provider entirely. *(web)*
-- **`PassReset.Tests` retargeted to `net10.0`** — cross-platform tests (web, controllers, contract tests, Ldap unit tests) now run on Linux CI. Windows-only tests moved to a new `PassReset.Tests.Windows` project (`net10.0-windows`). *(test)*
+
+- **`PassReset.Web` retargeted to `net10.0`** (Phase 11) — the Windows provider is now a conditional `ProjectReference` gated on `$(OS) == 'Windows_NT'` with a `WINDOWS_PROVIDER` compile constant. Linux / Docker builds skip the Windows provider entirely. *(web)*
+- **`PassReset.Tests` retargeted to `net10.0`** (Phase 11) — cross-platform tests run on Linux CI; Windows-only tests moved to `PassReset.Tests.Windows` (`net10.0-windows`). *(test)*
+- **`HealthController` no longer references `System.DirectoryServices.AccountManagement`** — AD reachability is delegated to the DI-injected `IAdConnectivityProbe`. *(web)*
+
+### Security
+
+- **Admin endpoint isolation** — socket-level loopback binding (`127.0.0.1:<LoopbackPort>`) makes admin endpoints unreachable from the public listener.
+- **Data Protection purpose isolation** — `PassReset.Configuration.v1` prevents cross-use of secret ciphertext with other DP consumers (antiforgery, etc.).
+- **Antiforgery tokens** required on all admin POSTs.
+- **Key-ring ACL** — installer creates `<install-dir>/keys` with a restrictive NTFS ACL (app pool: Modify; Administrators: FullControl; inheritance disabled).
+- **Installer preflight** fails safely — IIS is not touched on failed Service-mode migration.
 
 ### Non-changes (explicit)
+
 - **Windows provider unchanged.** `PassReset.PasswordProvider` (net10.0-windows) is byte-for-byte identical to v1.4.2. Zero regression for Windows operators.
 - **`UserCannotChangePassword` ACE check** is deferred on the LDAP provider. AD's server-side modify rejection provides enforcement without the ACE check; the error message is less specific on Linux but behavior is correct.
+- **`PassReset.Web` still uses the Phase-11 conditional TFM.** Cross-platform deployment of the web host remains blocked by NU1201: NuGet refuses to restore a plain `net10.0` project with a `ProjectReference` to a `net10.0-windows` one, even behind a `<Condition>` guard. Unblocking Linux hosting requires multi-targeting `PassReset.PasswordProvider` (deferred to a follow-up phase).
+- **Windows contract tests are gone, not fixed.** The Phase-11 `PasswordChangeProviderContractTests` skip shim was deleted rather than unskipped. Reason: `UserPrincipal` is sealed in the .NET 10 BCL; `IPrincipalContextFactory` cannot return mockable principals. Windows provider retains its 139 impl-specific tests + Samba integration coverage; LDAP provider's 7 contract tests are unchanged.
 
 ### Known Limitations
-- **Linux deployment remains blocked.** Alpha.1 shipped with `PassReset.Web` using a conditional TFM because `HealthController` directly referenced `PrincipalContext`. The follow-up in `[Unreleased]` removed that direct reference via the new `IAdConnectivityProbe` seam, but the Web project still cannot target plain `net10.0`: NuGet restore (NU1201) rejects a plain-`net10.0` project with a `ProjectReference` to a `net10.0-windows` one, regardless of `<ItemGroup Condition>` guards. Unblocking requires multi-targeting `PassReset.PasswordProvider`. **Current alpha audience: Windows operators who want to test the LDAP provider pathway before the beta.**
+
+- **Linux deployment remains blocked.** Alpha.1 retains the conditional TFM on `PassReset.Web` (see Non-changes). **Current alpha audience: Windows operators who want to test the new LDAP provider, local policy, admin UI, and Service-hosting pathways before the beta.**
+- **Admin UI under IIS hosting is unverified.** Task 20 of the Phase 14 plan (IIS + admin UI smoke test) is deferred to this alpha's field testing. If the admin UI fails to render under IIS, a follow-up gate will disable the admin listener in IIS mode (use Service mode to access the admin UI in that case).
 
 ### Breaking
-- None for Windows upgraders running with default config. (Schema adds `ProviderMode` with default `Auto`; Windows stays on Windows provider.)
+
+- None for Windows upgraders running with default config. The `ProviderMode` schema addition defaults to `Auto` (picks Windows provider on Windows); `AdminSettings.Enabled` defaults to `false`; `-HostingMode` defaults to `IIS` (matching v1.x behavior).
 
 ---
 
