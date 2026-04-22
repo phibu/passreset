@@ -1,20 +1,22 @@
 ﻿#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Removes a PassReset installation from IIS and the file system.
+    Removes a PassReset installation from IIS, the Windows Service manager, and the file system.
 
 .DESCRIPTION
     This script reverses what Install-PassReset.ps1 created:
-      1. Stops and removes the IIS site.
-      2. Stops and removes the IIS application pool.
-      3. Removes the physical deployment folder and its contents.
-      4. Optionally removes dated backup folders left by previous upgrades.
+      1. Stops and removes the PassReset Windows Service, if one is registered (Phase 14 Service hosting mode).
+      2. Stops and removes the IIS site.
+      3. Stops and removes the IIS application pool.
+      4. Removes the physical deployment folder and its contents.
+      5. Optionally removes dated backup folders left by previous upgrades.
 
     Nothing else is touched: IIS, IIS features, the .NET Hosting Bundle,
     certificates, and all other sites/pools are left completely intact.
 
 .PARAMETER SiteName
-    Name of the IIS site to remove. Default: PassReset
+    Name of the IIS site and/or Windows Service to remove. Both are expected
+    to share this name by convention. Default: PassReset
 
 .PARAMETER AppPoolName
     Name of the IIS application pool to remove. Default: PassResetPool
@@ -136,9 +138,14 @@ if ($svcExists) {
         Stop-Service -Name $SiteName -Force
         Write-Ok "Stopped service $SiteName"
     }
-    sc.exe delete $SiteName | Out-Null
-    Start-Sleep -Seconds 2
-    Write-Ok "Removed service $SiteName"
+    $scOutput = sc.exe delete $SiteName 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "sc.exe delete returned exit code $LASTEXITCODE"
+        if ($scOutput) { Write-Warn "  $scOutput" }
+    } else {
+        Start-Sleep -Seconds 2
+        Write-Ok "Removed service $SiteName"
+    }
 } else {
     Write-Warn "Windows service '$SiteName' not found — skipping"
 }
