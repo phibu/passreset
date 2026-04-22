@@ -1101,6 +1101,24 @@ $aclLogs.SetAccessRule($ruleLogs)
 Set-Acl -Path $logsPath -AclObject $aclLogs
 Write-Ok "Modify granted to $identity on $logsPath"
 
+# ── Phase 13: Data Protection key ring ─────────────────────────────────────
+$keysPath = Join-Path $PhysicalPath 'keys'
+if (-not (Test-Path $keysPath))
+{
+    New-Item -ItemType Directory -Path $keysPath -Force | Out-Null
+    Write-Host "Created Data Protection key ring directory: $keysPath"
+}
+
+# Restrictive ACL: only app pool identity + Administrators
+$keysAcl = New-Object System.Security.AccessControl.DirectorySecurity
+$keysAcl.SetAccessRuleProtection($true, $false)  # disable inheritance, no copy
+$keysAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+    $identity, 'Modify', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+$keysAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+    'BUILTIN\Administrators', 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+Set-Acl -Path $keysPath -AclObject $keysAcl
+Write-Ok "Set restrictive ACL on $keysPath (app pool: Modify, Administrators: FullControl)"
+
 # ─── 7. Write starter production config ───────────────────────────────────────
 
 Write-Step 'Writing starter appsettings.Production.json'
@@ -1314,5 +1332,8 @@ Write-Host '     See docs/Secret-Management.md for details.'
 }
 Write-Host '  3. Browse to the site and test with UseDebugProvider: true first.'
 Write-Host '  4. Set UseDebugProvider: false when ready for production.'
+Write-Host ""
+Write-Host "Admin UI: http://localhost:5010/admin (RDP or console to this server to access)" -ForegroundColor Cyan
+Write-Host "Key storage: $keysPath — BACK UP this directory, or secrets.dat becomes unrecoverable." -ForegroundColor Yellow
 Write-Host '======================================================' -ForegroundColor Cyan
 Write-Host ''
