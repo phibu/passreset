@@ -621,7 +621,20 @@ function Install-AsWindowsService {
     $existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     if ($existing) {
         if ($existing.Status -eq 'Running') { Stop-Service -Name $ServiceName -Force }
-        sc.exe delete $ServiceName | Out-Null
+        $scOutput = sc.exe delete $ServiceName 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Abort @"
+Failed to remove the existing '$ServiceName' Windows Service (sc.exe exit code $LASTEXITCODE).
+
+If the exit code is 1072 ('marked for deletion'), a previous installation's
+service handle is still open. Close any Services.msc window, Event Viewer, or
+other management tool that may be inspecting this service — or reboot — and
+then re-run this installer.
+
+sc.exe output:
+$scOutput
+"@
+        }
         Start-Sleep -Seconds 2
     }
 
@@ -700,62 +713,67 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 
 Write-Step 'Checking prerequisites'
 
-# IIS
-if (-not (Get-Service -Name W3SVC -ErrorAction SilentlyContinue)) {
-    Abort 'IIS (W3SVC) is not installed. Install the Web Server (IIS) role first.'
-}
-Write-Ok 'IIS is installed'
+# IIS prerequisites only apply when hosting under IIS. Service/Console modes
+# run standalone and must not hard-fail (or invoke Get-WindowsFeature, which
+# throws on workstation-class hosts without the Server-Manager RSAT).
+if ($HostingMode -eq 'IIS') {
+    # IIS
+    if (-not (Get-Service -Name W3SVC -ErrorAction SilentlyContinue)) {
+        Abort 'IIS (W3SVC) is not installed. Install the Web Server (IIS) role first.'
+    }
+    Write-Ok 'IIS is installed'
 
-# Required IIS features — valid on Windows Server 2019, 2022, and 2025.
-# Note: Web-ASPNET45 / Web-Asp-Net45 are .NET Framework 4.x features and are NOT
-# required for ASP.NET Core. They do not exist on Server 2019+ and must not be listed.
-# The ASP.NET Core Module is installed by the .NET Hosting Bundle (checked below).
-$requiredFeatures = @(
-    'Web-Server',
-    'Web-WebServer',
-    'Web-Static-Content',
-    'Web-Default-Doc',
-    'Web-Http-Errors',
-    'Web-Http-Logging',
-    'Web-Filtering',
-    'Web-Mgmt-Console'
-)
+    # Required IIS features — valid on Windows Server 2019, 2022, and 2025.
+    # Note: Web-ASPNET45 / Web-Asp-Net45 are .NET Framework 4.x features and are NOT
+    # required for ASP.NET Core. They do not exist on Server 2019+ and must not be listed.
+    # The ASP.NET Core Module is installed by the .NET Hosting Bundle (checked below).
+    $requiredFeatures = @(
+        'Web-Server',
+        'Web-WebServer',
+        'Web-Static-Content',
+        'Web-Default-Doc',
+        'Web-Http-Errors',
+        'Web-Http-Logging',
+        'Web-Filtering',
+        'Web-Mgmt-Console'
+    )
 
-$missing = $requiredFeatures | Where-Object {
-    (Get-WindowsFeature -Name $_).InstallState -ne 'Installed'
-}
+    $missing = $requiredFeatures | Where-Object {
+        (Get-WindowsFeature -Name $_).InstallState -ne 'Installed'
+    }
 
-if ($missing) {
-    Write-Warn 'Missing IIS features detected:'
-    $missing | ForEach-Object { Write-Host "    - $_" -ForegroundColor Yellow }
-    if (-not $Force) {
-        $consent = Read-Host '  Install missing IIS features now via DISM? [Y/N]'
-        if ($consent -notmatch '^[Yy]') {
-            Write-Host ''
-            Write-Host '  To install manually, run as Administrator:' -ForegroundColor Yellow
-            foreach ($f in $missing) {
-                Write-Host "    dism /online /enable-feature /featurename:$f /all /norestart" -ForegroundColor Yellow
+    if ($missing) {
+        Write-Warn 'Missing IIS features detected:'
+        $missing | ForEach-Object { Write-Host "    - $_" -ForegroundColor Yellow }
+        if (-not $Force) {
+            $consent = Read-Host '  Install missing IIS features now via DISM? [Y/N]'
+            if ($consent -notmatch '^[Yy]') {
+                Write-Host ''
+                Write-Host '  To install manually, run as Administrator:' -ForegroundColor Yellow
+                foreach ($f in $missing) {
+                    Write-Host "    dism /online /enable-feature /featurename:$f /all /norestart" -ForegroundColor Yellow
+                }
+                Write-Host ''
+                exit 0
             }
-            Write-Host ''
-            exit 0
+        } else {
+            Write-Ok '-Force specified - installing missing IIS features via DISM'
         }
+        foreach ($f in $missing) {
+            if ($PSCmdlet.ShouldProcess("IIS feature $f", 'Enable via DISM')) {
+                $dismExit = (Start-Process -FilePath dism.exe `
+                    -ArgumentList @('/online','/enable-feature',"/featurename:$f",'/all','/norestart','/quiet') `
+                    -Wait -PassThru -NoNewWindow).ExitCode
+                # 3010 = success, reboot pending (Microsoft DISM convention)
+                if ($dismExit -ne 0 -and $dismExit -ne 3010) {
+                    Abort "DISM failed enabling $f (exit $dismExit). Run: dism /online /get-featureinfo /featurename:$f"
+                }
+            }
+        }
+        Write-Ok 'IIS features enabled via DISM'
     } else {
-        Write-Ok '-Force specified - installing missing IIS features via DISM'
+        Write-Ok 'All required IIS features present'
     }
-    foreach ($f in $missing) {
-        if ($PSCmdlet.ShouldProcess("IIS feature $f", 'Enable via DISM')) {
-            $dismExit = (Start-Process -FilePath dism.exe `
-                -ArgumentList @('/online','/enable-feature',"/featurename:$f",'/all','/norestart','/quiet') `
-                -Wait -PassThru -NoNewWindow).ExitCode
-            # 3010 = success, reboot pending (Microsoft DISM convention)
-            if ($dismExit -ne 0 -and $dismExit -ne 3010) {
-                Abort "DISM failed enabling $f (exit $dismExit). Run: dism /online /get-featureinfo /featurename:$f"
-            }
-        }
-    }
-    Write-Ok 'IIS features enabled via DISM'
-} else {
-    Write-Ok 'All required IIS features present'
 }
 
 # .NET 10 Hosting Bundle
@@ -829,6 +847,12 @@ if (-not (Test-Path $PhysicalPath)) {
     Write-Ok "Created $PhysicalPath"
 }
 
+# Resolve the Data Protection key ring path up front so the Done summary can
+# reference it in all hosting modes. Program.cs uses AppContext.BaseDirectory/keys
+# as the default regardless of hosting mode (IIS / Service / Console), so every
+# mode needs this directory — the IIS block also performs ACL hardening on it.
+$keysPath = Join-Path $PhysicalPath 'keys'
+
 # BRAND DIR — upgrade-safe, never remove on upgrade per FEAT-001 / D-Branding.
 # Owned by the operator: contains logo, favicon, and other assets served via /brand/*.
 $brandPath = Join-Path $env:ProgramData 'PassReset\brand'
@@ -840,10 +864,12 @@ if (-not (Test-Path $brandPath)) {
 }
 
 # Stop the site/pool before copying so locked files are released.
-# WebAdministration + IIS:\ PSDrive are loaded earlier by Initialize-WebAdministration;
-# reaching this point in IIS mode already guarantees $script:WebAdministrationAvailable.
-$poolExists = Test-Path "IIS:\AppPools\$AppPoolName"
-$siteExists = Test-Path "IIS:\Sites\$SiteName"
+# WebAdministration + IIS:\ PSDrive are loaded earlier by Initialize-WebAdministration.
+# This block runs mode-agnostically (upgrade detection needs $siteExists for all modes),
+# so we short-circuit on $script:WebAdministrationAvailable — Test-Path against the
+# IIS:\ drive would throw under strict mode on non-IIS hosts.
+$poolExists = $script:WebAdministrationAvailable -and (Test-Path "IIS:\AppPools\$AppPoolName")
+$siteExists = $script:WebAdministrationAvailable -and (Test-Path "IIS:\Sites\$SiteName")
 
 # ─── Upgrade detection ────────────────────────────────────────────────────────
 
@@ -1339,22 +1365,52 @@ Set-Acl -Path $logsPath -AclObject $aclLogs
 Write-Ok "Modify granted to $identity on $logsPath"
 
 # ── Phase 13: Data Protection key ring ─────────────────────────────────────
-$keysPath = Join-Path $PhysicalPath 'keys'
-if (-not (Test-Path $keysPath))
+# $keysPath is resolved earlier (pre-mode-branch) so the Done summary works in
+# all hosting modes. Here we only create the directory + apply ACLs on IIS mode
+# + fresh-install path.
+$keysIsNew = -not (Test-Path $keysPath)
+if ($keysIsNew)
 {
     New-Item -ItemType Directory -Path $keysPath -Force | Out-Null
     Write-Host "Created Data Protection key ring directory: $keysPath"
 }
 
-# Restrictive ACL: only app pool identity + Administrators
-$keysAcl = New-Object System.Security.AccessControl.DirectorySecurity
-$keysAcl.SetAccessRuleProtection($true, $false)  # disable inheritance, no copy
-$keysAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
-    $identity, 'Modify', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
-$keysAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
-    'BUILTIN\Administrators', 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
-Set-Acl -Path $keysPath -AclObject $keysAcl
-Write-Ok "Set restrictive ACL on $keysPath (app pool: Modify, Administrators: FullControl)"
+if ($keysIsNew) {
+    # Fresh install: apply restrictive ACL from scratch (inheritance off, explicit ACEs only).
+    $keysAcl = New-Object System.Security.AccessControl.DirectorySecurity
+    $keysAcl.SetAccessRuleProtection($true, $false)  # disable inheritance, no copy
+    $keysAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+        $identity, 'Modify', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+    $keysAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+        'BUILTIN\Administrators', 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+    Set-Acl -Path $keysPath -AclObject $keysAcl
+    Write-Ok "Set restrictive ACL on $keysPath (app pool: Modify, Administrators: FullControl)"
+} else {
+    # Upgrade: leave the existing ACL in place. Changing the DACL now would blow away
+    # any identity the previous installer run granted — and the Data Protection key ring
+    # in this directory may have been encrypted to that identity. Losing ACL access would
+    # make all admin-UI secrets unreadable.
+    # Check whether the current app-pool identity already has Modify on the directory;
+    # if not, warn the operator rather than silently rewriting the ACL.
+    # NOTE: $identity here is always an NTAccount string (one of: $AppPoolIdentity,
+    # $existingIdentity from IIS config, or "IIS AppPool\$AppPoolName"), so a direct
+    # string compare against IdentityReference.Value works in the common case.
+    # If the stored ACE is a SID (unresolvable principal), the Where-Object below
+    # will miss it and the Write-Warn will fire; the installer still preserves the ACL.
+    $currentAcl = Get-Acl -Path $keysPath
+    $hasIdentity = $currentAcl.Access | Where-Object {
+        $_.IdentityReference.Value -eq $identity -and
+        ($_.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::Modify)
+    }
+    if (-not $hasIdentity) {
+        Write-Warn "App-pool identity '$identity' does not currently have Modify rights on '$keysPath'."
+        Write-Warn "The installer is NOT rewriting the ACL on upgrade to avoid invalidating the Data Protection key ring."
+        Write-Warn "If the identity has changed since last install, grant Modify manually:"
+        Write-Warn "  icacls `"$keysPath`" /grant `"${identity}:(OI)(CI)M`""
+    } else {
+        Write-Ok "Preserved existing ACL on $keysPath (identity '$identity' already has Modify)"
+    }
+}
 
 # ─── 7. Write starter production config ───────────────────────────────────────
 
