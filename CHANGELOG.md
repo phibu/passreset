@@ -12,6 +12,23 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.0.0-alpha.4] — 2026-04-22
+
+Third installer hardening pass — the PowerShell 7 story is finally correct. No application code changes.
+
+### Fixed
+
+- **Installer now works on PowerShell 7 IIS hosts.** The previous alphas assumed `Import-Module WebAdministration` would make the `IIS:\` PSDrive available for `Set-ItemProperty "IIS:\AppPools\..."` and similar calls. It does not — in PS 7, the `WebAdministration` PSProvider and its `IIS:\` drive live inside the WinPSCompat remoting session and are not reachable from the caller's runspace (confirmed on PS 7.6 with IIS Management Scripting Tools installed). Migrated all drive-dependent call sites to the `IISAdministration` module (PS Core-native, no compat session). Cmdlet-based calls like `Get-Website`, `New-WebAppPool`, `New-WebBinding` still use WebAdministration through compat-session proxies and are unchanged. *(installer)*
+
+### Technical notes
+
+- `Initialize-WebAdministration` → `Initialize-IIS`. Loads `IISAdministration` as primary (config writes), `WebAdministration` as secondary (cmdlet proxies). Drops the dead `New-PSDrive -PSProvider WebAdministration` fallback.
+- App pool and site property writes now use `Start-IISCommitDelay` / `Stop-IISCommitDelay -Commit` around property-assignment blocks on `Get-IISAppPool` / `Get-IISSite` results.
+- `Test-Path "IIS:\AppPools\..."` / `Test-Path "IIS:\Sites\..."` replaced by `Get-IISAppPool` / `Get-IISSite` existence checks.
+- `Get-WebConfigurationProperty -PSPath 'IIS:\'` identity reads replaced by `$pool.ProcessModel.IdentityType` / `.UserName`.
+
+---
+
 ## [2.0.0-alpha.3] — 2026-04-22
 
 Second installer hardening pass after a systematic audit of `Install-PassReset.ps1` surfaced five more Severity-1 issues. No application code changes.
